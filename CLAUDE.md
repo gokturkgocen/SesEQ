@@ -122,6 +122,21 @@ fallback). `buildAppleScript(for:runningJS:)` is the shared injector for both re
 - **Spotify pre-fetch**: menu "Spotify ile Bağlan" → paste Client ID from developer.spotify.com
   dashboard (redirect URI `http://127.0.0.1:38123/cb`). Premium account. Tokens in Keychain.
 
+## Localization (`Localization.swift`)
+
+- **Runtime language switch, English default, Turkish selectable** (settings panel). `Loc.shared`
+  is a `@MainActor ObservableObject` with `@Published lang` persisted in UserDefaults (`SesEQ.language`);
+  views that observe it re-render on switch. `L` is a non-actor mirror (reads UserDefaults) for use
+  off the main actor / in value types. Strings are inline: `loc.t("English", "Türkçe")` / `L.t(...)` —
+  no `.strings` bundling, no key table, no missing-key bugs.
+- **Preset names stay the stable key.** `EQPreset.name` is NEVER localized (it's load-bearing:
+  Theme.family/accent match on it, UserDefaults persists it, chip active-state compares it). A separate
+  `EQPreset.displayName` provides the localized label for display only. Do NOT rename `.name`.
+- **Detection is structured, not parsed.** `AutoPresetSelector` exposes `lastArtist/lastTitle/
+  lastSourceApp/lastSourceKind (DetectionSourceKind)/lastStatus (DetectionStatus)`; the view localizes
+  from these. The old approach parsed Turkish substrings out of `lastDetection` (deriveSource/
+  parseNowPlaying) — removed, because it broke the moment the strings were translated.
+
 ## UI (SwiftUI popover)
 
 Menu-bar icon opens an `NSPopover` hosting `PopoverView` (SwiftUI via `NSHostingController`).

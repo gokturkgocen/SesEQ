@@ -11,6 +11,7 @@ SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer t
 - **System-wide EQ** applied to all audio, not just one app.
 - **Automatic genre detection** with per-genre presets — hip-hop, trap, EDM, drum & bass, R&B, pop, K-pop, rock, metal, jazz, classical, blues, latin, reggae, indie, ambient, and more (21 built-in presets in total).
 - **Menu-bar only** (`LSUIElement`) — no dock icon; opens a compact SwiftUI popover.
+- **Bilingual UI** — English by default, Turkish selectable at runtime from the settings panel.
 - **Live spectrum analyzer** (2048-point FFT, 40 log-spaced bands) and a **rendered EQ response curve** for the active preset.
 - **Genre-reactive UI**: the popover's accent color follows the active preset family (rock red, EDM blue, metal chrome, …) and animates on genre change.
 - **Transport controls** (previous / play-pause / next) that route to whichever player is currently producing audio — Spotify, Apple Music, or YouTube Music.
