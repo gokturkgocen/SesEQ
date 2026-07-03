@@ -1,0 +1,12 @@
+DiscogsEffNet.mlmodelc — third-party model, NOT under this project's MIT license.
+
+Model: Discogs-EffNet ("EffnetDiscogs"), by the Music Technology Group,
+Universitat Pompeu Fabra (MTG-UPF) — Pablo Alonso-Jiménez, Xavier Serra,
+Dmitry Bogdanov. Part of the Essentia model collection.
+
+License: CC BY-NC-SA 4.0  (https://creativecommons.org/licenses/by-nc-sa/4.0/)
+Source:  https://essentia.upf.edu/models.html
+
+DiscogsEffNet.mlmodelc is a CoreML conversion (derivative) of the upstream ONNX
+model and remains under CC BY-NC-SA 4.0: NonCommercial use only, with attribution,
+shared alike. See ../THIRD-PARTY.md for full details and citation.

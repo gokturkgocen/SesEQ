@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Lets debuggers attach. Compatible with hardened runtime in modern macOS. -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+
+    <!-- Required for AppleScript / NSAppleScript to address other apps under hardened
+         runtime. Without this, macOS silently fails the prompt and the user never sees
+         a TCC dialog. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

@@ -1,0 +1,393 @@
+import SwiftUI
+
+/// Liquid Glass popover, Apple-Music-styled: the album art (blurred + saturated) fills
+/// the backdrop and tints the whole panel; controls float above as Liquid Glass.
+@available(macOS 26.0, *)
+struct PopoverView: View {
+    @ObservedObject var vm: EQViewModel
+    @State private var showSettings = false
+
+    private var accent: Color { vm.accent }
+
+    var body: some View {
+        ZStack {
+            backdrop.frame(maxWidth: .infinity, maxHeight: .infinity)
+            content
+        }
+        .frame(width: 318)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .animation(.smooth(duration: 0.5), value: vm.presetName)
+        .animation(.smooth(duration: 0.4), value: vm.artworkAccent)
+        .animation(.smooth(duration: 0.3), value: vm.userWantsEQ)
+    }
+
+    // MARK: Backdrop — bright/colorful so the Liquid Glass actually refracts (Apple-Music style)
+
+    private var backdrop: some View {
+        ZStack {
+            if let art = vm.artwork {
+                // Blurred album art — colorful bed for the glass to refract.
+                Image(nsImage: art).resizable().scaledToFill()
+                    .blur(radius: 60).saturation(1.35)
+                Color.black.opacity(0.34)   // veil: keep color, tame brightness for text
+            } else {
+                // Vibrant accent gradient when there's no art.
+                LinearGradient(colors: [accent, accent.opacity(0.45), Theme.bgBottom],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            // Corner glow adds depth
+            RadialGradient(colors: [accent.opacity(0.40), .clear],
+                           center: .topTrailing, startRadius: 0, endRadius: 340)
+            // Localized scrims for legible header/footer text; mid stays brighter for glass.
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.42), location: 0.0),
+                .init(color: .black.opacity(0.10), location: 0.22),
+                .init(color: .black.opacity(0.10), location: 0.78),
+                .init(color: .black.opacity(0.50), location: 1.0),
+            ], startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    // MARK: Content
+
+    private var content: some View {
+        VStack(spacing: 11) {
+            header
+            nowPlaying
+            curvePanel
+            autoToggle
+            chips
+            footer
+            if showSettings { settingsPanel }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 13)
+        .padding(.bottom, 12)
+        // Hard-pin the content column to exactly the panel width so a child with a large
+        // ideal width (the horizontal chips ScrollView reports its full content width)
+        // can't expand the column and get center-clipped on both sides.
+        .frame(width: 318)
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+            Text("SesEQ")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            statusPill
+            Spacer(minLength: 6)
+            powerButton
+        }
+    }
+
+    /// Clear ON / BYPASS / OFF state indicator next to the title.
+    private var statusPill: some View {
+        let (label, color): (String, Color) = {
+            if !vm.userWantsEQ { return ("Kapalı", .white.opacity(0.4)) }
+            if vm.isRunning { return ("Açık", Color(hex: 0x35C759)) }   // green = processing
+            return ("Bypass", Color(hex: 0xFFB02E))                      // amber = on but not this device
+        }()
+        return HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(.white.opacity(0.12)))
+    }
+
+    /// Power toggle: filled/glowing when ON, hollow/dim when OFF — unmistakable state.
+    @ViewBuilder private var powerButton: some View {
+        let btn = Button(action: vm.onToggleEQ) {
+            Image(systemName: "power")
+                .font(.system(size: 14, weight: .bold))
+                .frame(width: 34, height: 34)
+        }
+        .buttonBorderShape(.circle)
+
+        if vm.userWantsEQ {
+            btn.buttonStyle(.glassProminent).tint(accent)
+                .shadow(color: accent.opacity(0.6), radius: 7)
+        } else {
+            btn.buttonStyle(.glass).tint(.white.opacity(0.5))
+        }
+    }
+
+    // MARK: Now playing
+
+    private var nowPlaying: some View {
+        HStack(spacing: 10) {
+            artworkThumb
+            VStack(alignment: .leading, spacing: 3) {
+                Text(vm.nowTitle.isEmpty ? "Çalmıyor" : vm.nowTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                Text(vm.nowArtist.isEmpty ? " " : vm.nowArtist)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+                if !vm.nowTitle.isEmpty {
+                    HStack(spacing: 5) {
+                        Circle().fill(vm.genreAccent).frame(width: 6, height: 6)
+                        Text(vm.presetName)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1).truncationMode(.tail)
+                        if !vm.detectionSource.isEmpty {
+                            Text("· \(vm.detectionSource)")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.45))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    .padding(.top, 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            transportControls
+        }
+    }
+
+    // MARK: Transport (routes to whatever player is currently playing)
+
+    private var transportControls: some View {
+        HStack(spacing: 1) {
+            transportButton("backward.fill", size: 14, action: vm.onPrevious)
+            transportButton("playpause.fill", size: 18, action: vm.onPlayPause)
+            transportButton("forward.fill", size: 14, action: vm.onNext)
+        }
+    }
+
+    private func transportButton(_ symbol: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 34)
+                .contentShape(Rectangle())
+                .shadow(color: .black.opacity(0.55), radius: 3, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var artworkThumb: some View {
+        Group {
+            if let art = vm.artwork {
+                Image(nsImage: art).resizable().scaledToFill()
+            } else {
+                ZStack {
+                    LinearGradient(colors: [accent.opacity(0.9), accent.opacity(0.4)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "music.note").font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+        }
+        .frame(width: 52, height: 52)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(.white.opacity(0.12), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 7, y: 3)
+    }
+
+    // MARK: EQ curve + spectrum (clear glass panel over the art)
+
+    private var curvePanel: some View {
+        VStack(spacing: 5) {
+            Canvas { ctx, size in
+                drawSpectrum(ctx, size)
+                drawCurve(ctx, size)
+            }
+            .frame(height: 64)
+            HStack {
+                Text("20Hz").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
+                Spacer()
+                Text(statusWord)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(vm.isRunning ? accent : .white.opacity(0.4))
+                Spacer()
+                Text("20kHz").font(.system(size: 8)).foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .padding(12)
+        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var statusWord: String {
+        if vm.bypassReason != nil { return "BYPASS" }
+        return vm.isRunning ? "AKTİF" : "HAZIR"
+    }
+
+    private func drawSpectrum(_ ctx: GraphicsContext, _ size: CGSize) {
+        guard !vm.spectrum.isEmpty else { return }
+        let n = vm.spectrum.count
+        let bw = size.width / CGFloat(n)
+        for (i, lvl) in vm.spectrum.enumerated() {
+            let bh = CGFloat(lvl) * size.height
+            guard bh > 0.5 else { continue }
+            let rect = CGRect(x: CGFloat(i) * bw + bw * 0.14, y: size.height - bh,
+                              width: bw * 0.72, height: bh)
+            ctx.fill(Path(roundedRect: rect, cornerRadius: 1.2), with: .color(.white.opacity(0.13)))
+        }
+    }
+
+    private func drawCurve(_ ctx: GraphicsContext, _ size: CGSize) {
+        guard vm.responseDB.count > 1 else { return }
+        let count = vm.responseDB.count
+        let dbRange: CGFloat = 15
+        func point(_ i: Int) -> CGPoint {
+            let x = size.width * CGFloat(i) / CGFloat(count - 1)
+            let db = CGFloat(vm.responseDB[i])
+            var y = size.height / 2 - (db / dbRange) * (size.height / 2 - 8)
+            y = max(3, min(size.height - 3, y))
+            return CGPoint(x: x, y: y)
+        }
+        var line = Path()
+        line.move(to: point(0))
+        for i in 1..<count { line.addLine(to: point(i)) }
+        var fill = line
+        fill.addLine(to: CGPoint(x: size.width, y: size.height))
+        fill.addLine(to: CGPoint(x: 0, y: size.height))
+        fill.closeSubpath()
+        ctx.fill(fill, with: .linearGradient(
+            Gradient(colors: [accent.opacity(0.40), accent.opacity(0.03)]),
+            startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
+        var glow = ctx
+        glow.addFilter(.shadow(color: accent.opacity(0.8), radius: 5))
+        glow.stroke(line, with: .color(accent), lineWidth: 2.4)
+    }
+
+    // MARK: Auto toggle (glass capsule)
+
+    private var autoToggle: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(vm.autoOn ? accent : .white.opacity(0.55))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Otomatik Preset")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text(vm.autoOn ? detectionShort : "kapalı")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 8)
+            Toggle("", isOn: Binding(get: { vm.autoOn }, set: { _ in vm.onToggleAuto() }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(accent)
+                .scaleEffect(0.85)
+        }
+        .padding(.horizontal, 13).padding(.vertical, 9)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+
+    private var detectionShort: String {
+        if let r = vm.detection.range(of: " [") {
+            return String(vm.detection[r.lowerBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        return vm.detection
+    }
+
+    // MARK: Preset chips (glass capsules)
+
+    private var chips: some View {
+        // Only the natural/Harman preset is offered as a manual chip. The active preset
+        // (including whatever auto picks per track) is already shown under the track title,
+        // so the full 21-chip grid was redundant clutter.
+        HStack(spacing: 0) {
+            chip(EQPreset.natural)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func chip(_ preset: EQPreset) -> some View {
+        // In manual mode the highlighted chip is the user's pinned pick. In auto mode it follows
+        // whatever auto selected for the playing track — but when auto is on with NO source
+        // (idle), nothing is highlighted, so the old manual pick doesn't linger as a fake pin.
+        let active = preset.name == vm.presetName && (!vm.autoOn || vm.autoHasSource)
+        let chipColor = Theme.family(forPresetName: preset.name)?.accent ?? Theme.idleAccent
+        return Button { vm.onSelectPreset(preset.name) } label: {
+            Text(preset.name)
+                .font(.system(size: 10.5, weight: active ? .bold : .medium))
+                .foregroundStyle(active ? .black.opacity(0.88) : .white.opacity(0.9))
+                .padding(.horizontal, 11).padding(.vertical, 6)
+                .background(
+                    Capsule().fill(active ? AnyShapeStyle(chipColor) : AnyShapeStyle(.white.opacity(0.12)))
+                )
+                .overlay(Capsule().stroke(.white.opacity(active ? 0 : 0.10), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Footer
+
+    private var footer: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "hifispeaker.fill").font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
+            Text(vm.outputName).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 8)
+            Circle().fill(vm.spotifyConnected ? Color(hex: 0x1DB954) : .white.opacity(0.25))
+                .frame(width: 7, height: 7)
+            Button { withAnimation(.smooth(duration: 0.25)) { showSettings.toggle() } } label: {
+                Image(systemName: showSettings ? "chevron.down" : "gearshape.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(showSettings ? accent : .white.opacity(0.55))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+        }
+    }
+
+    // MARK: Settings panel
+
+    private var settingsPanel: some View {
+        VStack(spacing: 1) {
+            settingsRow(icon: vm.spotifyConnected ? "checkmark.seal.fill" : "music.note.list",
+                        title: vm.spotifyConnected ? "Spotify Bağlı (pre-fetch)" : "Spotify ile Bağlan…",
+                        tint: vm.spotifyConnected ? Color(hex: 0x1DB954) : .white,
+                        action: vm.onConnectSpotify)
+            settingsRow(icon: "lock.shield", title: "Otomasyon izinlerini test et", action: vm.onTestAutomation)
+            settingsRow(icon: "play.rectangle", title: "YT Music erişimini test et", action: vm.onTestYTMusic)
+            settingsRow(icon: vm.loginEnabled ? "checkmark.circle.fill" : "power",
+                        title: "Login'de Başlat", tint: vm.loginEnabled ? accent : .white,
+                        action: vm.onToggleLogin)
+            Divider().overlay(.white.opacity(0.1)).padding(.vertical, 2)
+            settingsRow(icon: "xmark.circle", title: "Çıkış", tint: Color(hex: 0xFF6B6B), action: vm.onQuit)
+        }
+        .padding(7)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+
+    private func settingsRow(icon: String, title: String, tint: Color = .white,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: icon).font(.system(size: 11)).foregroundStyle(tint).frame(width: 16)
+                Text(title).font(.system(size: 11.5)).foregroundStyle(tint.opacity(0.95))
+                Spacer()
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+

@@ -1,0 +1,547 @@
+import Foundation
+
+/// Orchestrates Now-Playing detection → genre lookup → preset selection.
+///
+/// Two modes coexist:
+///   1. Spotify Web API mode (when user has connected Spotify Premium):
+///      - We can read the queue, so we PRE-FETCH the next track's genre while
+///        the current one is still playing. When Spotify switches tracks (or
+///        the user hits Next), we already know the right preset → zero perceived delay.
+///   2. AppleScript-only mode (Music.app, browsers, or Spotify without OAuth):
+///      - Reactive only. We poll faster (1s) and apply preset as soon as a new
+///        track is detected. Latency ~1-1.5s but no setup required.
+@available(macOS 14.2, *)
+@MainActor
+final class AutoPresetSelector {
+    private let audio: AudioEngine
+    private let providers: [NowPlayingProvider]
+    private let genreLookup = GenreLookupService()
+    private let musicBrainz = MusicBrainzService()
+
+    // Audio-content genre classifier (Discogs-EffNet CoreML). Loaded lazily off-thread
+    // on first need; used only when catalog lookup fails or returns a wrong match.
+    private var genreClassifier: GenreClassifier?
+    private var classifierLoadAttempted = false
+
+    let spotifyAuth = SpotifyAuth()
+    private lazy var spotifyAPI = SpotifyAPI(auth: spotifyAuth)
+
+    private var task: Task<Void, Never>?
+    private var lastTrackIdentity: String?
+    private(set) var lastDetection: String = "—"
+    private(set) var lastArtworkURL: String?
+
+    /// Pre-fetched preset for whatever Spotify/YT Music will play after the current track.
+    /// Filled when we read the queue; consumed when a track change is detected.
+    private var nextTrackID: String?
+    private var nextTrackPreset: EQPreset?
+    private var nextTrackInfo: String?
+
+    /// Browser bundles that we'll try to read YouTube Music DOM from.
+    private static let ytMusicBrowsers: [(YouTubeMusicService.BrowserKind, String)] = [
+        (.chrome,  "com.google.Chrome"),
+        (.arc,     "company.thebrowser.Browser"),
+        (.brave,   "com.brave.Browser"),
+        (.edge,    "com.microsoft.edgemac"),
+        (.safari,  "com.apple.Safari"),
+    ]
+
+    var onStatusChange: (() -> Void)?
+
+    /// AppleScript-only polling interval. Spotify-Web-API mode uses on-demand timing.
+    private let appleScriptPollInterval: TimeInterval = 1.0
+
+    var enabled: Bool = false {
+        didSet {
+            if enabled { startPolling() }
+            else       { stopPolling() }
+        }
+    }
+
+    init(audio: AudioEngine) {
+        self.audio = audio
+        self.providers = [
+            SpotifyProvider(),
+            MusicProvider(),
+            ChromeProvider(),
+            ArcProvider(),
+            BraveProvider(),
+            EdgeProvider(),
+            SafariProvider(),
+        ]
+    }
+
+    private func startPolling() {
+        task?.cancel()
+        task = Task { [weak self] in
+            // Immediate first tick so user doesn't wait.
+            await self?.tick()
+            while !Task.isCancelled {
+                let interval = self?.appleScriptPollInterval ?? 1.0
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                await self?.tick()
+            }
+        }
+    }
+
+    private func stopPolling() {
+        task?.cancel()
+        task = nil
+        audioClassifyTask?.cancel()
+        audioClassifyTask = nil
+        lastTrackIdentity = nil
+        nextTrackID = nil
+        nextTrackPreset = nil
+        nextTrackInfo = nil
+        lastDetection = "—"
+        onStatusChange?()
+    }
+
+    // MARK: - Preset resolution (catalog → audio analysis → default)
+
+    /// Catalog resolution (no audio). Order:
+    ///   0. direct genre hint (Music.app gives genre) — trust it
+    ///   1. catalog (iTunes) WITH artist-name verification (rejects wrong matches)
+    /// Returns nil when the catalog can't confidently resolve → caller defers to
+    /// the audio-content classifier. Used for both now-playing and prefetch.
+    private func catalogPreset(artist: String, title: String, genreHint: String?) async -> (EQPreset, String)? {
+        if let g = genreHint, !g.isEmpty {
+            return (mapGenreToPreset(g), "[\(g)]")
+        }
+        // 1. Resolve the reported (artist, title).
+        if let r = await resolveGenre(artist: artist, title: title) { return r }
+        // 2. "Artist - Title" embedded in the title field. Common on YouTube / YT Music where
+        //    a compilation/upload channel lands in the artist field (e.g. "NEA ZIXNH") and the
+        //    real artist sits inside the title ("Gary Moore - Parisienne Walkways"). Split on
+        //    the first dash and retry with the artist parsed from the title.
+        if let (embArtist, embTitle) = Self.splitArtistTitle(title),
+           !artistNamesRoughlyMatch(embArtist, artist) {   // skip if it just repeats the artist
+            if let r = await resolveGenre(artist: embArtist, title: embTitle) { return r }
+        }
+        return nil
+    }
+
+    /// Resolves a genre for one (artist, title) candidate, best source first:
+    ///   1. MusicBrainz artist-genres — community genre votes WITH counts, count-weighted
+    ///      into a family. Accurate for style and free/no-key; fixes the per-track mislabels
+    ///      iTunes produces (Buckethead → "Electronic", Dire Straits → "Pop"). Spotify is NOT
+    ///      used for genre — it removed `genres` from its Web API in 2024.
+    ///   2. iTunes track lookup, verified against the artist name (fallback for artists
+    ///      MusicBrainz doesn't cover).
+    /// Returns nil if neither resolves confidently → caller defers to the audio classifier.
+    private func resolveGenre(artist: String, title: String) async -> (EQPreset, String)? {
+        if let genres = await musicBrainz.artistGenres(name: artist),
+           let (preset, top) = Self.mapWeightedGenresToPreset(genres) {
+            return (preset, "[\(top) ♪]")
+        }
+        if let hit = await genreLookup.lookup(artist: artist, title: title),
+           artistNamesRoughlyMatch(hit.matchedArtist, artist) {
+            return (mapGenreToPreset(hit.genre), "[\(hit.genre)]")
+        }
+        return nil
+    }
+
+    /// Splits "Artist - Title" on the first dash separator (" - ", " – ", " — ").
+    /// Returns nil when there's no clear separator or either side is too short.
+    private static func splitArtistTitle(_ s: String) -> (artist: String, title: String)? {
+        for sep in [" - ", " – ", " — "] {
+            guard let r = s.range(of: sep) else { continue }
+            let left = s[..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+            let right = s[r.upperBound...].trimmingCharacters(in: .whitespaces)
+            if left.count >= 2 && right.count >= 2 { return (left, right) }
+        }
+        return nil
+    }
+
+    /// Deferred audio-content classification. When the catalog misses, we wait a few
+    /// seconds so the analysis ring fills with the CURRENT track (not the previous one's
+    /// tail), then classify and apply. Keyed to `identity` so a track change cancels it.
+    private var audioClassifyTask: Task<Void, Never>?
+
+    private func scheduleAudioClassification(identity: String, displayPrefix: String) {
+        audioClassifyTask?.cancel()
+        let prefix = displayPrefix
+        audioClassifyTask = Task { [weak self] in
+            // Let ~4.5s of the current track accumulate in the analysis ring.
+            try? await Task.sleep(nanoseconds: 4_500_000_000)
+            guard let self, !Task.isCancelled else { return }
+            guard self.lastTrackIdentity == identity else { return }   // track changed → abort
+            guard let (samples, rate) = self.audio.snapshotAnalysisAudio(seconds: 4.0),
+                  let clf = await self.ensureClassifier() else { return }
+            let result = await Task.detached(priority: .userInitiated) {
+                clf.classify(samples: samples, inputRate: rate)
+            }.value
+            guard !Task.isCancelled, self.lastTrackIdentity == identity, let r = result else { return }
+            self.applyIfChanged(r.family.preset)
+            self.lastDetection = String(format: "%@ [%@ · %.0f%%] → %@",
+                                        prefix, r.topStyle, r.confidence * 100, r.family.preset.name)
+            self.onStatusChange?()
+        }
+    }
+
+    private func ensureClassifier() async -> GenreClassifier? {
+        if let c = genreClassifier { return c }
+        if classifierLoadAttempted { return nil }
+        classifierLoadAttempted = true
+        guard let resDir = Bundle.main.resourceURL else { return nil }
+        genreClassifier = await Task.detached(priority: .userInitiated) {
+            GenreClassifier(resourceDir: resDir)
+        }.value
+        return genreClassifier
+    }
+
+    // MARK: - Main tick
+
+    private func tick() async {
+        guard enabled else { return }
+
+        let sourceBundle = AudioSourceMonitor.currentSourceBundleID()
+
+        // Spotify + Web API path — prefer this when available; gives us queue lookahead.
+        if sourceBundle == "com.spotify.client" && spotifyAuth.isConnected {
+            await tickSpotifyAPI()
+            return
+        }
+
+        // YouTube Music in a browser → try DOM-scraping path for queue lookahead.
+        if let browser = Self.ytMusicBrowsers.first(where: { $0.1 == sourceBundle })?.0 {
+            if await tickYouTubeMusic(browser: browser) { return }
+            // Fell through (no YT Music tab, no JS permission, etc.) → reactive fallback.
+        }
+
+        await tickAppleScript(sourceBundle: sourceBundle)
+    }
+
+    // MARK: - YouTube Music path (with pre-fetch via JS injection)
+
+    /// Returns true if YT Music produced a usable snapshot; false → caller should fall back.
+    private func tickYouTubeMusic(browser: YouTubeMusicService.BrowserKind) async -> Bool {
+        guard let snap = await YouTubeMusicService.readSnapshot(browser: browser),
+              let current = snap.current
+        else { return false }
+
+        let identity = current.identity
+
+        if identity != lastTrackIdentity {
+            lastTrackIdentity = identity
+            lastArtworkURL = current.art
+            audioClassifyTask?.cancel()
+            let prefix = "YT Music (\(browser.appName)): \(current.artist) — \(current.title)"
+
+            if nextTrackID == identity, let cached = nextTrackPreset {
+                applyIfChanged(cached)
+                lastDetection = "\(prefix) [pre-fetch ✓] → \(cached.name)"
+            } else if let (preset, tag) = await catalogPreset(artist: current.artist, title: current.title, genreHint: nil) {
+                applyIfChanged(preset)
+                lastDetection = "\(prefix) \(tag) → \(preset.name)"
+            } else {
+                lastDetection = "\(prefix) [katalog yok · ses analizi…]"
+                scheduleAudioClassification(identity: identity, displayPrefix: prefix)
+            }
+
+            // Pre-resolve the next track if we have it.
+            nextTrackID = nil
+            nextTrackPreset = nil
+            nextTrackInfo = nil
+            if let next = snap.next {
+                Task { [weak self] in await self?.prefetchYouTubeMusicNext(next) }
+            }
+            onStatusChange?()
+        } else {
+            let lookahead = nextTrackInfo.map { "  ⤴ sıradaki: \($0)" } ?? ""
+            lastDetection = "YT Music: \(current.artist) — \(current.title)\(lookahead)"
+            onStatusChange?()
+        }
+        return true
+    }
+
+    private func prefetchYouTubeMusicNext(_ next: YouTubeMusicService.Snapshot.Track) async {
+        // Only prefetch when the catalog can resolve it; audio analysis can't run on a
+        // track that isn't playing yet, so on a catalog miss we leave the cache empty
+        // and let the real-time path classify the audio once the track actually starts.
+        if let (preset, _) = await catalogPreset(artist: next.artist, title: next.title, genreHint: nil) {
+            nextTrackID = next.identity
+            nextTrackPreset = preset
+            nextTrackInfo = "\(next.artist) — \(next.title) → \(preset.name)"
+            onStatusChange?()
+        } else {
+            nextTrackID = nil; nextTrackPreset = nil; nextTrackInfo = nil
+        }
+    }
+
+    // MARK: - Spotify Web API path (with pre-fetch)
+
+    private func tickSpotifyAPI() async {
+        guard let snapshot = await spotifyAPI.currentlyPlaying(),
+              let item = snapshot.item
+        else {
+            // Premium expired? Token failed? Fall back to AppleScript path.
+            await tickAppleScript(sourceBundle: "com.spotify.client")
+            return
+        }
+
+        let trackID = item.id ?? "\(item.primaryArtist)|\(item.name)"
+
+        // Track change detected.
+        if trackID != lastTrackIdentity {
+            lastTrackIdentity = trackID
+            lastArtworkURL = item.artworkURL
+            audioClassifyTask?.cancel()
+            let prefix = "Spotify: \(item.primaryArtist) — \(item.name)"
+
+            if nextTrackID == trackID, let cached = nextTrackPreset {
+                // 1. Pre-fetched preset for this track → apply instantly.
+                applyIfChanged(cached)
+                lastDetection = "\(prefix) [pre-fetch ✓] → \(cached.name)"
+            } else if let (preset, tag) = await catalogPreset(artist: item.primaryArtist, title: item.name, genreHint: nil) {
+                // 2. Catalog resolved (verified) → apply instantly.
+                applyIfChanged(preset)
+                lastDetection = "\(prefix) \(tag) → \(preset.name)"
+            } else {
+                // 3. Catalog miss → defer to audio-content classification.
+                lastDetection = "\(prefix) [katalog yok · ses analizi…]"
+                scheduleAudioClassification(identity: trackID, displayPrefix: prefix)
+            }
+            onStatusChange?()
+
+            // 4. Schedule prefetch of the NEXT-after-this track.
+            nextTrackID = nil
+            nextTrackPreset = nil
+            nextTrackInfo = nil
+            Task { [weak self] in await self?.prefetchNext() }
+        } else {
+            // Same track — keep status fresh but don't churn.
+            let lookahead = nextTrackInfo.map { "  ⤴ sıradaki: \($0)" } ?? ""
+            lastDetection = "Spotify: \(item.primaryArtist) — \(item.name)\(lookahead)"
+            onStatusChange?()
+        }
+    }
+
+    private func prefetchNext() async {
+        guard let queueSnap = await spotifyAPI.queue(),
+              let next = queueSnap.nextTrack
+        else {
+            nextTrackID = nil; nextTrackPreset = nil; nextTrackInfo = nil
+            return
+        }
+        if let (preset, _) = await catalogPreset(artist: next.primaryArtist, title: next.name, genreHint: nil) {
+            nextTrackID = next.id ?? "\(next.primaryArtist)|\(next.name)"
+            nextTrackPreset = preset
+            nextTrackInfo = "\(next.primaryArtist) — \(next.name) → \(preset.name)"
+            onStatusChange?()
+        } else {
+            nextTrackID = nil; nextTrackPreset = nil; nextTrackInfo = nil
+        }
+    }
+
+    // MARK: - AppleScript path (reactive)
+
+    private func tickAppleScript(sourceBundle: String?) async {
+        let preferred = providers.first(where: { $0.bundleID == sourceBundle })
+        var track: NowPlayingTrack? = nil
+        if let preferred {
+            track = await preferred.currentTrack()
+        }
+        if track == nil {
+            for provider in providers where provider.bundleID != sourceBundle {
+                if let t = await provider.currentTrack() {
+                    track = t; break
+                }
+            }
+        }
+
+        if let track {
+            if track.identity == lastTrackIdentity { return }
+            lastTrackIdentity = track.identity
+            lastArtworkURL = nil   // AppleScript providers don't supply artwork
+            audioClassifyTask?.cancel()
+            let prefix = "\(shortAppName(track.sourceBundleID)): \(track.artist) — \(track.title)"
+
+            if let (preset, tag) = await catalogPreset(artist: track.artist, title: track.title, genreHint: track.genre) {
+                applyIfChanged(preset)
+                lastDetection = "\(prefix) \(tag) → \(preset.name)"
+            } else {
+                lastDetection = "\(prefix) [katalog yok · ses analizi…]"
+                scheduleAudioClassification(identity: track.identity, displayPrefix: prefix)
+            }
+        } else if let sourceBundle {
+            let preset = mapBundleToPreset(sourceBundle)
+            lastDetection = "\(shortAppName(sourceBundle)) → \(preset.name)  ⚠ şarkı okunamadı (Otomasyon izni?)"
+            applyIfChanged(preset)
+        } else {
+            lastDetection = "Ses kaynağı yok"
+        }
+        onStatusChange?()
+    }
+
+    // MARK: - Common helpers
+
+    private func applyIfChanged(_ preset: EQPreset) {
+        if audio.activePreset.name != preset.name {
+            audio.activePreset = preset
+        }
+    }
+
+    private func mapGenreToPreset(_ genre: String?) -> EQPreset {
+        guard let raw = genre?.lowercased() else { return .pop }
+
+        // Trap / Phonk — extreme sub-bass, check before generic rap.
+        if raw.contains("trap") || raw.contains("phonk")                     { return .trap }
+        // Hip-hop / rap / drill
+        if raw.contains("hip-hop") || raw.contains("hip hop") || raw.contains("rap")
+            || raw.contains("drill")                                         { return .hipHop }
+        // Drum & bass / dubstep / jungle / breakbeat / future bass
+        if raw.contains("dubstep") || raw.contains("drum and bass") || raw.contains("drum & bass")
+            || raw.contains("dnb")  || raw.contains("jungle")
+            || raw.contains("breakbeat") || raw.contains("future bass")     { return .dnb }
+        // EDM family
+        if raw.contains("electronic") || raw.contains("dance") || raw.contains("edm")
+            || raw.contains("house")  || raw.contains("techno")
+            || raw.contains("trance") || raw.contains("synthwave")
+            || raw.contains("electronica") || raw.contains("idm")            { return .edm }
+        // R&B / Soul / Funk / Disco / Neo-Soul
+        if raw.contains("r&b") || raw.contains("r and b") || raw.contains("rnb")
+            || raw.contains("soul") || raw.contains("funk")
+            || raw.contains("disco") || raw.contains("neo-soul")             { return .rnb }
+        // K-Pop / J-Pop / Anime / Vocaloid
+        if raw.contains("k-pop") || raw.contains("kpop") || raw.contains("k pop")
+            || raw.contains("j-pop") || raw.contains("jpop")
+            || raw.contains("korean") || raw.contains("japanese")
+            || raw.contains("anime") || raw.contains("vocaloid")             { return .kpop }
+        // Latin family
+        if raw.contains("reggaeton") || raw.contains("latin")
+            || raw.contains("salsa") || raw.contains("bachata")
+            || raw.contains("cumbia") || raw.contains("merengue")            { return .latin }
+        // Reggae / Ska / Dub / Dancehall
+        if raw.contains("reggae") || raw.contains("ska")
+            || raw.contains("dancehall") || raw.contains("dub")              { return .reggae }
+        // Metal (check before generic rock). Removed "hardcore" — too ambiguous.
+        if raw.contains("metal") || raw.contains("heavy metal")
+            || raw.contains("death metal") || raw.contains("thrash")
+            || raw.contains("metalcore") || raw.contains("grindcore")        { return .metal }
+        // Rock — incl. punk, emo, shoegaze, grunge, post-rock
+        if raw.contains("rock") || raw.contains("punk") || raw.contains("grunge")
+            || raw.contains("emo") || raw.contains("shoegaze")               { return .rock }
+        // Indie / alternative / hyperpop / dream pop / bedroom pop
+        if raw.contains("indie") || raw.contains("alternative") || raw.contains("alt-rock")
+            || raw.contains("hyperpop") || raw.contains("dream pop")
+            || raw.contains("bedroom pop")                                   { return .indie }
+        // Jazz family — bossa nova, big band, swing
+        if raw.contains("jazz") || raw.contains("bossa nova")
+            || raw.contains("big band") || raw.contains("swing")             { return .jazz }
+        // Classical / film score / video game music (all orchestral / cinematic).
+        if raw.contains("classical") || raw.contains("orchestral")
+            || raw.contains("opera") || raw.contains("symphony")
+            || raw.contains("chamber") || raw.contains("soundtrack")
+            || raw.contains("score") || raw.contains("film music")
+            || raw.contains("video game")                                    { return .classical }
+        // Blues
+        if raw.contains("blues")                                             { return .blues }
+        // Acoustic / Folk / Country / Singer-songwriter / Americana / Bluegrass
+        if raw.contains("acoustic") || raw.contains("folk")
+            || raw.contains("country") || raw.contains("singer-songwriter")
+            || raw.contains("bluegrass") || raw.contains("americana")        { return .acoustic }
+        // Ambient family — downtempo, trip-hop, lo-fi, easy listening, vaporwave, chill
+        if raw.contains("ambient") || raw.contains("new age")
+            || raw.contains("chillout") || raw.contains("meditation")
+            || raw.contains("lo-fi") || raw.contains("lofi")
+            || raw.contains("downtempo") || raw.contains("trip-hop")
+            || raw.contains("trip hop") || raw.contains("easy listening")
+            || raw.contains("vaporwave") || raw.contains("chill")            { return .ambient }
+        // World / ethnic — incl. Turkish traditional genres, Celtic, Flamenco
+        if raw.contains("world") || raw.contains("ethnic")
+            || raw.contains("worldbeat") || raw.contains("traditional")
+            || raw.contains("flamenco") || raw.contains("celtic")
+            || raw.contains("türk halk") || raw.contains("türk sanat")
+            || raw.contains("arabesk") || raw.contains("turkish folk")
+            || raw.contains("turkish classical")                             { return .world }
+        // Spoken / podcast / audiobook / comedy / children's content
+        if raw.contains("spoken") || raw.contains("audiobook")
+            || raw.contains("podcast") || raw.contains("comedy")
+            || raw.contains("speech") || raw.contains("children")            { return .voice }
+        return .pop
+    }
+
+    /// Granular genre tags ("avant-garde metal", "dance pop", "instrumental rock", …) →
+    /// preset family. Each artist tag is matched against the FIRST rule it satisfies.
+    /// Rule ORDER matters: more specific / less-ambiguous families first, and `.pop`
+    /// precedes `.edm`/`.rock` so compounds like "dance pop" / "art pop" / "synth-pop"
+    /// resolve to pop instead of EDM. Used to score MusicBrainz's count-weighted votes.
+    private static let genreKeywordRules: [(EQPreset, [String])] = [
+        (.trap,      ["trap", "phonk"]),
+        (.hipHop,    ["hip hop", "hip-hop", "rap", "drill"]),
+        (.dnb,       ["drum and bass", "drum & bass", "dnb", "dubstep", "jungle", "breakbeat", "breakcore"]),
+        (.kpop,      ["k-pop", "kpop", "j-pop", "jpop", "anime", "vocaloid"]),
+        (.metal,     ["metal", "grindcore", "thrash", "metalcore", "deathcore", "djent"]),
+        (.pop,       ["pop"]),   // before edm/rock: "dance pop"/"art pop"/"synth-pop" → pop
+        (.rnb,       ["r&b", "rnb", "soul", "funk", "disco", "motown", "new jack"]),
+        (.reggae,    ["reggae", "ska", "dancehall", "dub "]),
+        (.latin,     ["reggaeton", "latin", "salsa", "bachata", "cumbia", "merengue", "mariachi", "tango"]),
+        (.rock,      ["rock", "punk", "grunge", "emo", "shoegaze"]),
+        (.indie,     ["indie", "alternative", "hyperpop"]),
+        (.jazz,      ["jazz", "bossa", "swing", "big band", "bebop"]),
+        (.classical, ["classical", "orchestral", "opera", "symphony", "chamber", "soundtrack", "score", "baroque"]),
+        (.blues,     ["blues"]),
+        (.acoustic,  ["folk", "country", "acoustic", "singer-songwriter", "bluegrass", "americana"]),
+        (.ambient,   ["ambient", "downtempo", "lo-fi", "lofi", "new age", "chillout", "chillwave", "trip hop", "trip-hop", "vaporwave", "drone"]),
+        (.edm,       ["electronic", "techno", "house", "edm", "trance", "electro", "dance", "idm", "synthwave", "big room", "garage"]),
+        (.world,     ["world", "türk", "turkish", "arabesk", "flamenco", "celtic", "ethnic", "afrobeat", "fado", "balkan"]),
+        (.voice,     ["spoken word", "audiobook", "podcast", "comedy"]),
+    ]
+
+    /// Picks a preset family from count-weighted genre votes (MusicBrainz). Each vote's
+    /// count is added to the family its name maps to; the highest-scoring family wins, so
+    /// low-count noise (e.g. a stray "chillout" vote on a metal artist) can't beat the
+    /// dominant style. Returns the family plus the single highest-count genre name (for the
+    /// detection tag), or nil when nothing recognizable matched.
+    static func mapWeightedGenresToPreset(_ genres: [MusicBrainzService.WeightedGenre]) -> (EQPreset, String)? {
+        guard !genres.isEmpty else { return nil }
+        var tally = [Int: Int]()   // rule index → summed vote count
+        for wg in genres {
+            let g = wg.name.lowercased()
+            for (idx, rule) in genreKeywordRules.enumerated() where rule.1.contains(where: { g.contains($0) }) {
+                tally[idx, default: 0] += wg.count
+                break   // first matching rule wins for this tag
+            }
+        }
+        // Highest summed count wins; ties break toward the earlier (more specific) rule.
+        var bestIdx = -1, bestScore = 0
+        for (idx, _) in genreKeywordRules.enumerated() {
+            let s = tally[idx] ?? 0
+            if s > bestScore { bestScore = s; bestIdx = idx }
+        }
+        guard bestIdx >= 0 else { return nil }
+        return (genreKeywordRules[bestIdx].0, genres.first?.name ?? "MusicBrainz")
+    }
+
+    private func mapBundleToPreset(_ bundle: String) -> EQPreset {
+        switch bundle {
+        case "us.zoom.xos", "com.microsoft.teams", "com.tinyspeck.slackmacgap",
+             "com.apple.FaceTime", "com.hnc.Discord", "net.whatsapp.WhatsApp":
+            return .voice
+        case "org.videolan.vlc", "io.mpv", "com.apple.QuickTimePlayerX",
+             "com.netflix.Netflix":
+            return .pop
+        case "com.spotify.client", "com.apple.Music",
+             "com.google.Chrome", "company.thebrowser.Browser", "com.brave.Browser",
+             "com.microsoft.edgemac", "com.apple.Safari", "org.mozilla.firefox":
+            return .pop
+        default:
+            return audio.activePreset
+        }
+    }
+
+    private func shortAppName(_ bundle: String) -> String {
+        switch bundle {
+        case "com.spotify.client":              return "Spotify"
+        case "com.apple.Music":                 return "Apple Music"
+        case "com.google.Chrome":               return "Chrome"
+        case "company.thebrowser.Browser":      return "Arc"
+        case "com.brave.Browser":               return "Brave"
+        case "com.microsoft.edgemac":           return "Edge"
+        case "com.apple.Safari":                return "Safari"
+        case "org.mozilla.firefox":             return "Firefox"
+        default:                                return bundle
+        }
+    }
+}

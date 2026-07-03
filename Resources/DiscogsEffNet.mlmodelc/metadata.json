@@ -1,0 +1,81 @@
+[
+  {
+    "metadataOutputVersion" : "3.0",
+    "shortDescription" : "Music style classifier: 128x96 mel-spectrogram -> 400 Discogs styles + 1280-dim embedding",
+    "outputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16 1 × 400)",
+        "shortDescription" : "",
+        "shape" : "[1, 400]",
+        "name" : "activations",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16 1 × 1280)",
+        "shortDescription" : "",
+        "shape" : "[1, 1280]",
+        "name" : "embeddings",
+        "type" : "MultiArray"
+      }
+    ],
+    "storagePrecision" : "Float16",
+    "modelParameters" : [
+
+    ],
+    "author" : "MTG-UPF (Discogs-EffNet) — converted for SesEQ",
+    "specificationVersion" : 8,
+    "mlProgramOperationTypeHistogram" : {
+      "Ios17.expandDims" : 1,
+      "Ios16.sigmoid" : 17,
+      "Ios17.reshape" : 1,
+      "Ios17.conv" : 81,
+      "Ios17.linear" : 1,
+      "Ios17.mul" : 16,
+      "Ios17.add" : 9,
+      "Ios16.reduceMean" : 17,
+      "Ios16.silu" : 49
+    },
+    "computePrecision" : "Mixed (Float16, Int32)",
+    "isUpdatable" : "0",
+    "stateSchema" : [
+
+    ],
+    "availability" : {
+      "macOS" : "14.0",
+      "tvOS" : "17.0",
+      "visionOS" : "1.0",
+      "watchOS" : "10.0",
+      "iOS" : "17.0",
+      "macCatalyst" : "17.0"
+    },
+    "modelType" : {
+      "name" : "MLModelType_mlProgram"
+    },
+    "inputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16 1 × 128 × 96)",
+        "shortDescription" : "128 frames x 96 mel bands, Essentia TensorflowInputMusiCNN format, 16kHz",
+        "shape" : "[1, 128, 96]",
+        "name" : "melspectrogram",
+        "type" : "MultiArray"
+      }
+    ],
+    "userDefinedMetadata" : {
+      "com.github.apple.coremltools.conversion_date" : "2026-05-29",
+      "com.github.apple.coremltools.source" : "torch==2.12.0",
+      "com.github.apple.coremltools.version" : "9.0",
+      "com.github.apple.coremltools.source_dialect" : "TorchScript"
+    },
+    "generatedClassName" : "DiscogsEffNet",
+    "method" : "predict"
+  }
+]

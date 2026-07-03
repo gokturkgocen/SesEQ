@@ -1,0 +1,14 @@
+# Build output
+build/
+*.app
+
+# macOS
+.DS_Store
+
+# Re-downloadable / regeneratable ML pipeline artifacts (see ml-pipeline/README.md).
+# The compiled model the app actually uses (Resources/DiscogsEffNet.mlmodelc) IS committed.
+ml-pipeline/discogs-effnet-bsdynamic-1.onnx
+ml-pipeline/DiscogsEffNet.mlpackage/
+ml-pipeline/venv/
+__pycache__/
+*.pyc
