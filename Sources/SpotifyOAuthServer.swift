@@ -42,8 +42,8 @@ final class SpotifyOAuthServer {
                         let (code, state) = self.parseCodeAndState(from: rawRequest)
                         let success = code != nil && state == expectedState
                         let body = success
-                            ? "<!doctype html><meta charset=utf-8><title>Bağlandı</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#1db954'>✓ SesEQ Spotify'a bağlandı.<br><span style='color:#666;font-size:13px'>Bu sekmeyi kapatabilirsin.</span></body>"
-                            : "<!doctype html><meta charset=utf-8><title>Hata</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#c00'>✗ Bağlantı başarısız.<br><span style='color:#666;font-size:13px'>SesEQ'ya geri dönüp tekrar dene.</span></body>"
+                            ? "<!doctype html><meta charset=utf-8><title>" + L.t("Connected", "Bağlandı") + "</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#1db954'>" + L.t("✓ SesEQ connected to Spotify.", "✓ SesEQ Spotify'a bağlandı.") + "<br><span style='color:#666;font-size:13px'>" + L.t("You can close this tab.", "Bu sekmeyi kapatabilirsin.") + "</span></body>"
+                            : "<!doctype html><meta charset=utf-8><title>" + L.t("Error", "Hata") + "</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#c00'>" + L.t("✗ Connection failed.", "✗ Bağlantı başarısız.") + "<br><span style='color:#666;font-size:13px'>" + L.t("Go back to SesEQ and try again.", "SesEQ'ya geri dönüp tekrar dene.") + "</span></body>"
                         self.sendHTTPResponse(body: body, on: conn) {
                             conn.cancel()
                             if let code, state == expectedState {
@@ -123,8 +123,8 @@ final class SpotifyOAuthServer {
         case timeout
         var errorDescription: String? {
             switch self {
-            case .invalidCallback: return "Spotify'dan geçersiz yanıt geldi (state uyuşmuyor)."
-            case .timeout:         return "Yetkilendirme 2 dakikadan uzun sürdü, iptal edildi."
+            case .invalidCallback: return L.t("Invalid response from Spotify (state mismatch).", "Spotify'dan geçersiz yanıt geldi (state uyuşmuyor).")
+            case .timeout:         return L.t("Authorization took longer than 2 minutes and was cancelled.", "Yetkilendirme 2 dakikadan uzun sürdü, iptal edildi.")
             }
         }
     }

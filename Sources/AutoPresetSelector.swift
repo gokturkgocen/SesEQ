@@ -31,6 +31,20 @@ final class AutoPresetSelector {
     private(set) var lastDetection: String = "—"
     private(set) var lastArtworkURL: String?
 
+    // Structured detection state — the source of truth for the UI (the view localizes it).
+    // Replaces parsing the Turkish `lastDetection` display string.
+    private(set) var lastArtist: String?
+    private(set) var lastTitle: String?
+    private(set) var lastSourceApp: String?          // "YT Music (Chrome)", "Spotify", "Apple Music" …
+    private(set) var lastSourceKind: DetectionSourceKind?
+    private(set) var lastStatus: DetectionStatus = .idle
+
+    /// Record a resolved now-playing track structurally so the view can localize it.
+    private func markResolved(app: String, artist: String, title: String, kind: DetectionSourceKind?) {
+        lastSourceApp = app; lastArtist = artist; lastTitle = title
+        lastSourceKind = kind; lastStatus = .playing
+    }
+
     /// Pre-fetched preset for whatever Spotify/YT Music will play after the current track.
     /// Filled when we read the queue; consumed when a track change is detected.
     private var nextTrackID: String?
@@ -94,6 +108,8 @@ final class AutoPresetSelector {
         nextTrackPreset = nil
         nextTrackInfo = nil
         lastDetection = "—"
+        lastArtist = nil; lastTitle = nil; lastSourceApp = nil
+        lastSourceKind = nil; lastStatus = .idle
         onStatusChange?()
     }
 
@@ -175,6 +191,7 @@ final class AutoPresetSelector {
             self.applyIfChanged(r.family.preset)
             self.lastDetection = String(format: "%@ [%@ · %.0f%%] → %@",
                                         prefix, r.topStyle, r.confidence * 100, r.family.preset.name)
+            self.lastSourceKind = .analyzed   // artist/title/app already set when analysis was scheduled
             self.onStatusChange?()
         }
     }
@@ -227,15 +244,20 @@ final class AutoPresetSelector {
             lastArtworkURL = current.art
             audioClassifyTask?.cancel()
             let prefix = "YT Music (\(browser.appName)): \(current.artist) — \(current.title)"
+            let app = "YT Music (\(browser.appName))"
 
             if nextTrackID == identity, let cached = nextTrackPreset {
                 applyIfChanged(cached)
                 lastDetection = "\(prefix) [pre-fetch ✓] → \(cached.name)"
+                markResolved(app: app, artist: current.artist, title: current.title, kind: .prefetch)
             } else if let (preset, tag) = await catalogPreset(artist: current.artist, title: current.title, genreHint: nil) {
                 applyIfChanged(preset)
                 lastDetection = "\(prefix) \(tag) → \(preset.name)"
+                markResolved(app: app, artist: current.artist, title: current.title,
+                             kind: tag.contains("♪") ? .musicBrainz : .catalog)
             } else {
                 lastDetection = "\(prefix) [katalog yok · ses analizi…]"
+                markResolved(app: app, artist: current.artist, title: current.title, kind: .analyzing)
                 scheduleAudioClassification(identity: identity, displayPrefix: prefix)
             }
 
@@ -293,13 +315,17 @@ final class AutoPresetSelector {
                 // 1. Pre-fetched preset for this track → apply instantly.
                 applyIfChanged(cached)
                 lastDetection = "\(prefix) [pre-fetch ✓] → \(cached.name)"
+                markResolved(app: "Spotify", artist: item.primaryArtist, title: item.name, kind: .prefetch)
             } else if let (preset, tag) = await catalogPreset(artist: item.primaryArtist, title: item.name, genreHint: nil) {
                 // 2. Catalog resolved (verified) → apply instantly.
                 applyIfChanged(preset)
                 lastDetection = "\(prefix) \(tag) → \(preset.name)"
+                markResolved(app: "Spotify", artist: item.primaryArtist, title: item.name,
+                             kind: tag.contains("♪") ? .musicBrainz : .catalog)
             } else {
                 // 3. Catalog miss → defer to audio-content classification.
                 lastDetection = "\(prefix) [katalog yok · ses analizi…]"
+                markResolved(app: "Spotify", artist: item.primaryArtist, title: item.name, kind: .analyzing)
                 scheduleAudioClassification(identity: trackID, displayPrefix: prefix)
             }
             onStatusChange?()
@@ -355,21 +381,29 @@ final class AutoPresetSelector {
             lastTrackIdentity = track.identity
             lastArtworkURL = nil   // AppleScript providers don't supply artwork
             audioClassifyTask?.cancel()
-            let prefix = "\(shortAppName(track.sourceBundleID)): \(track.artist) — \(track.title)"
+            let app = shortAppName(track.sourceBundleID)
+            let prefix = "\(app): \(track.artist) — \(track.title)"
 
             if let (preset, tag) = await catalogPreset(artist: track.artist, title: track.title, genreHint: track.genre) {
                 applyIfChanged(preset)
                 lastDetection = "\(prefix) \(tag) → \(preset.name)"
+                markResolved(app: app, artist: track.artist, title: track.title,
+                             kind: tag.contains("♪") ? .musicBrainz : .catalog)
             } else {
                 lastDetection = "\(prefix) [katalog yok · ses analizi…]"
+                markResolved(app: app, artist: track.artist, title: track.title, kind: .analyzing)
                 scheduleAudioClassification(identity: track.identity, displayPrefix: prefix)
             }
         } else if let sourceBundle {
             let preset = mapBundleToPreset(sourceBundle)
             lastDetection = "\(shortAppName(sourceBundle)) → \(preset.name)  ⚠ şarkı okunamadı (Otomasyon izni?)"
             applyIfChanged(preset)
+            lastSourceApp = shortAppName(sourceBundle)
+            lastArtist = nil; lastTitle = nil; lastSourceKind = nil; lastStatus = .unreadable
         } else {
             lastDetection = "Ses kaynağı yok"
+            lastSourceApp = nil; lastArtist = nil; lastTitle = nil
+            lastSourceKind = nil; lastStatus = .noSource
         }
         onStatusChange?()
     }

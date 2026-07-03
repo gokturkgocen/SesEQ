@@ -186,11 +186,11 @@ final class SpotifyAuth {
 
         var errorDescription: String? {
             switch self {
-            case .missingClientID:    return "Spotify Client ID girilmemiş."
-            case .notConnected:       return "Spotify hesabı bağlı değil."
-            case .urlBuildFailed:     return "Yetkilendirme URL'i oluşturulamadı."
-            case .tokenRequestFailed: return "Token isteği başarısız oldu."
-            case .spotifyError(let m):return "Spotify hatası: \(m)"
+            case .missingClientID:    return L.t("Spotify Client ID not entered.", "Spotify Client ID girilmemiş.")
+            case .notConnected:       return L.t("No Spotify account connected.", "Spotify hesabı bağlı değil.")
+            case .urlBuildFailed:     return L.t("Could not build the authorization URL.", "Yetkilendirme URL'i oluşturulamadı.")
+            case .tokenRequestFailed: return L.t("Token request failed.", "Token isteği başarısız oldu.")
+            case .spotifyError(let m):return L.t("Spotify error: ", "Spotify hatası: ") + m
             }
         }
     }

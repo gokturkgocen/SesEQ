@@ -60,7 +60,13 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         vm.onTestAutomation = { [weak self] in self?.testPermissions() }
         vm.onTestYTMusic    = { [weak self] in self?.testYouTubeMusic() }
         vm.onToggleLogin    = { [weak self] in self?.toggleLoginItem() }
+        vm.onSetLanguage    = { [weak self] lang in self?.setLanguage(lang) }
         vm.onQuit           = { NSApplication.shared.terminate(nil) }
+    }
+
+    private func setLanguage(_ lang: AppLanguage) {
+        Loc.shared.setLanguage(lang)   // @Published → the observing popover re-renders in the new language
+        syncVM()
     }
 
     /// Routes a transport press to whatever supported player is currently playing.
@@ -239,7 +245,8 @@ final class StatusBarController: NSObject, NSWindowDelegate {
             if loginItem.status == .enabled { try loginItem.unregister() }
             else { try loginItem.register() }
         } catch {
-            presentAlert(title: "Login öğesi güncellenemedi", body: error.localizedDescription)
+            presentAlert(title: Loc.shared.t("Could not update login item", "Açılışta başlatma ayarı güncellenemedi"),
+                         body: error.localizedDescription)
         }
         syncVM()
     }
@@ -266,16 +273,18 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         vm.isRunning = audio.isRunning
         vm.bypassReason = audio.bypassReason
         vm.autoOn = autoSelector.enabled
-        // "Has a live source" = auto is on and the last detection resolved to an actual track/
-        // source (not the idle "Ses kaynağı yok" / "—"). Drives whether chips show a pinned pick.
-        let det = autoSelector.lastDetection
-        vm.autoHasSource = autoSelector.enabled && det != "—" && !det.contains("Ses kaynağı yok")
+        // Structured detection state (no string parsing). "Has a live source" = auto is on
+        // and a track actually resolved; drives whether chips show a pinned pick.
+        vm.autoHasSource = autoSelector.enabled && autoSelector.lastStatus == .playing
+        vm.detectionStatus   = autoSelector.enabled ? autoSelector.lastStatus : .idle
+        vm.detectionSourceApp = autoSelector.lastSourceApp ?? ""
+        vm.detectionSourceKind = autoSelector.enabled ? autoSelector.lastSourceKind : nil
+        vm.nowArtist = autoSelector.enabled ? (autoSelector.lastArtist ?? "") : ""
+        vm.nowTitle  = autoSelector.enabled ? (autoSelector.lastTitle ?? "") : ""
         vm.presetName = audio.activePreset.name
         vm.outputName = audio.outputDeviceName
         vm.spotifyConnected = autoSelector.spotifyAuth.isConnected
         vm.loginEnabled = (loginItem.status == .enabled)
-        vm.detection = autoSelector.enabled ? autoSelector.lastDetection : "—"
-        vm.parseNowPlaying(from: autoSelector.lastDetection)
 
         if lastCurvePreset != audio.activePreset.name {
             recomputeCurve()
@@ -324,21 +333,24 @@ final class StatusBarController: NSObject, NSWindowDelegate {
             ("Edge",        #"tell application id "com.microsoft.edgemac" to if it is running then if (count of windows) > 0 then return URL of active tab of front window"#),
         ]
         Task { @MainActor in
-            var report = "Her satır bir kaynak. ✓ = izinli, ⚠ = izin yok, • = kapalı/yok\n\n"
+            let loc = Loc.shared
+            var report = loc.t("Each line is a source. ✓ = allowed, ⚠ = not allowed, • = closed/absent\n\n",
+                               "Her satır bir kaynak. ✓ = izinli, ⚠ = izin yok, • = kapalı/yok\n\n")
             for (name, script) in apps {
                 switch await AppleScriptRunner.run(script) {
-                case .success(let s):      report += "✓ \(name): \(s.isEmpty ? "(çalmıyor)" : String(s.prefix(50)))\n"
-                case .permissionDenied:    report += "⚠ \(name): otomasyon izni REDDEDİLDİ\n"
-                case .appNotRunning:       report += "• \(name): yüklü değil veya çalışmıyor\n"
-                case .otherError(let c, let m): report += "✗ \(name): hata \(c) — \(m.prefix(60))\n"
+                case .success(let s):      report += "✓ \(name): \(s.isEmpty ? loc.t("(not playing)", "(çalmıyor)") : String(s.prefix(50)))\n"
+                case .permissionDenied:    report += "⚠ \(name): " + loc.t("automation permission DENIED", "otomasyon izni REDDEDİLDİ") + "\n"
+                case .appNotRunning:       report += "• \(name): " + loc.t("not installed or not running", "yüklü değil veya çalışmıyor") + "\n"
+                case .otherError(let c, let m): report += "✗ \(name): " + loc.t("error", "hata") + " \(c) — \(m.prefix(60))\n"
                 }
             }
-            report += "\n⚠ varsa: Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → SesEQ"
+            report += loc.t("\nIf you see ⚠: System Settings → Privacy & Security → Automation → SesEQ",
+                            "\n⚠ varsa: Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → SesEQ")
             let alert = NSAlert()
-            alert.messageText = "Otomasyon erişim durumu"
+            alert.messageText = loc.t("Automation access status", "Otomasyon erişim durumu")
             alert.informativeText = report
-            alert.addButton(withTitle: "Tamam")
-            alert.addButton(withTitle: "Ayarları Aç")
+            alert.addButton(withTitle: loc.t("OK", "Tamam"))
+            alert.addButton(withTitle: loc.t("Open Settings", "Ayarları Aç"))
             if alert.runModal() == .alertSecondButtonReturn,
                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
                 NSWorkspace.shared.open(url)
@@ -348,15 +360,17 @@ final class StatusBarController: NSObject, NSWindowDelegate {
 
     private func testYouTubeMusic() {
         Task { @MainActor in
-            var report = "Her satır bir tarayıcı. ✓ = okuyor, ⚠ = ayar eksik\n\n"
+            let loc = Loc.shared
+            var report = loc.t("Each line is a browser. ✓ = reading, ⚠ = setting missing\n\n",
+                               "Her satır bir tarayıcı. ✓ = okuyor, ⚠ = ayar eksik\n\n")
             for browser in [YouTubeMusicService.BrowserKind.chrome, .arc, .brave, .edge, .safari] {
                 report += "\(browser.appName): \(await YouTubeMusicService.diagnose(browser: browser))\n"
             }
-            report += "\nEğer ⚠ görüyorsan tarayıcıda:\n"
+            report += loc.t("\nIf you see ⚠, in the browser:\n", "\nEğer ⚠ görüyorsan tarayıcıda:\n")
             report += "  • Chrome/Brave/Edge/Arc: View → Developer → 'Allow JavaScript from Apple Events'\n"
-            report += "  • Safari: Settings → Advanced → 'Show Develop menu' → Develop → aynısı\n"
+            report += "  • Safari: Settings → Advanced → 'Show Develop menu' → Develop → " + loc.t("same", "aynısı") + "\n"
             let alert = NSAlert()
-            alert.messageText = "YouTube Music erişim durumu"
+            alert.messageText = loc.t("YouTube Music access status", "YouTube Music erişim durumu")
             alert.informativeText = report
             alert.runModal()
         }
@@ -365,11 +379,13 @@ final class StatusBarController: NSObject, NSWindowDelegate {
     private func spotifyMenu() {
         let auth = autoSelector.spotifyAuth
         if auth.isConnected {
+            let loc = Loc.shared
             let alert = NSAlert()
-            alert.messageText = "Spotify bağlantısı"
-            alert.informativeText = "SesEQ Spotify hesabına bağlı. Pre-fetch aktif.\n\nBağlantıyı kaldırmak ister misin?"
-            alert.addButton(withTitle: "Bağlı tut")
-            alert.addButton(withTitle: "Bağlantıyı kaldır")
+            alert.messageText = loc.t("Spotify connection", "Spotify bağlantısı")
+            alert.informativeText = loc.t("SesEQ is connected to your Spotify account. Pre-fetch is active.\n\nDo you want to disconnect?",
+                                          "SesEQ Spotify hesabına bağlı. Pre-fetch aktif.\n\nBağlantıyı kaldırmak ister misin?")
+            alert.addButton(withTitle: loc.t("Stay connected", "Bağlı tut"))
+            alert.addButton(withTitle: loc.t("Disconnect", "Bağlantıyı kaldır"))
             if alert.runModal() == .alertSecondButtonReturn { auth.disconnect(); syncVM() }
             return
         }
@@ -378,9 +394,18 @@ final class StatusBarController: NSObject, NSWindowDelegate {
     }
 
     private func promptForClientID() {
+        let loc = Loc.shared
         let alert = NSAlert()
-        alert.messageText = "Spotify Client ID gerekli"
-        alert.informativeText = """
+        alert.messageText = loc.t("Spotify Client ID required", "Spotify Client ID gerekli")
+        alert.informativeText = loc.t("""
+        Create an app in the Spotify Developer dashboard:
+
+        1. https://developer.spotify.com/dashboard
+        2. "Create app" → name: SesEQ
+        3. Redirect URI: \(SpotifyAuth.redirectURI)
+        4. Choose the Web API → Save
+        5. Copy the Client ID from Settings and paste it below
+        """, """
         Spotify Developer dashboard'da bir uygulama oluştur:
 
         1. https://developer.spotify.com/dashboard
@@ -388,13 +413,13 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         3. Redirect URI: \(SpotifyAuth.redirectURI)
         4. Web API'yi seç → Save
         5. Settings'ten Client ID'yi kopyala ve aşağıya yapıştır
-        """
+        """)
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
-        input.placeholderString = "32 karakterlik hex Client ID"
+        input.placeholderString = loc.t("32-character hex Client ID", "32 karakterlik hex Client ID")
         alert.accessoryView = input
-        alert.addButton(withTitle: "Devam")
-        alert.addButton(withTitle: "Dashboard'u Aç")
-        alert.addButton(withTitle: "Vazgeç")
+        alert.addButton(withTitle: loc.t("Continue", "Devam"))
+        alert.addButton(withTitle: loc.t("Open Dashboard", "Dashboard'u Aç"))
+        alert.addButton(withTitle: loc.t("Cancel", "Vazgeç"))
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             let id = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -411,11 +436,13 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         Task { @MainActor in
             do {
                 try await autoSelector.spotifyAuth.connect()
-                presentAlert(title: "Spotify bağlandı ✓",
-                             body: "Pre-fetch aktif. Otomatik preset modunda sıradaki şarkı önceden hazırlanır.")
+                presentAlert(title: Loc.shared.t("Spotify connected ✓", "Spotify bağlandı ✓"),
+                             body: Loc.shared.t("Pre-fetch active. In automatic preset mode the next track is prepared in advance.",
+                                                "Pre-fetch aktif. Otomatik preset modunda sıradaki şarkı önceden hazırlanır."))
                 syncVM()
             } catch {
-                presentAlert(title: "Bağlantı başarısız", body: error.localizedDescription)
+                presentAlert(title: Loc.shared.t("Connection failed", "Bağlantı başarısız"),
+                             body: error.localizedDescription)
             }
         }
     }

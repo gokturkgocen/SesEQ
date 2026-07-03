@@ -5,6 +5,7 @@ import SwiftUI
 @available(macOS 26.0, *)
 struct PopoverView: View {
     @ObservedObject var vm: EQViewModel
+    @ObservedObject private var loc = Loc.shared   // re-render on language switch
     @State private var showSettings = false
 
     private var accent: Color { vm.accent }
@@ -88,9 +89,9 @@ struct PopoverView: View {
     /// Clear ON / BYPASS / OFF state indicator next to the title.
     private var statusPill: some View {
         let (label, color): (String, Color) = {
-            if !vm.userWantsEQ { return ("Kapalı", .white.opacity(0.4)) }
-            if vm.isRunning { return ("Açık", Color(hex: 0x35C759)) }   // green = processing
-            return ("Bypass", Color(hex: 0xFFB02E))                      // amber = on but not this device
+            if !vm.userWantsEQ { return (loc.t("Off", "Kapalı"), .white.opacity(0.4)) }
+            if vm.isRunning { return (loc.t("On", "Açık"), Color(hex: 0x35C759)) }   // green = processing
+            return (loc.t("Bypass", "Bypass"), Color(hex: 0xFFB02E))                 // amber = on but not this device
         }()
         return HStack(spacing: 4) {
             Circle().fill(color).frame(width: 6, height: 6)
@@ -126,7 +127,7 @@ struct PopoverView: View {
         HStack(spacing: 10) {
             artworkThumb
             VStack(alignment: .leading, spacing: 3) {
-                Text(vm.nowTitle.isEmpty ? "Çalmıyor" : vm.nowTitle)
+                Text(vm.nowTitle.isEmpty ? loc.t("Not playing", "Çalmıyor") : vm.nowTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -141,7 +142,7 @@ struct PopoverView: View {
                 if !vm.nowTitle.isEmpty {
                     HStack(spacing: 5) {
                         Circle().fill(vm.genreAccent).frame(width: 6, height: 6)
-                        Text(vm.presetName)
+                        Text(vm.presetDisplayName)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.white.opacity(0.7))
                             .lineLimit(1).truncationMode(.tail)
@@ -227,7 +228,7 @@ struct PopoverView: View {
 
     private var statusWord: String {
         if vm.bypassReason != nil { return "BYPASS" }
-        return vm.isRunning ? "AKTİF" : "HAZIR"
+        return vm.isRunning ? loc.t("ACTIVE", "AKTİF") : loc.t("READY", "HAZIR")
     }
 
     private func drawSpectrum(_ ctx: GraphicsContext, _ size: CGSize) {
@@ -277,10 +278,10 @@ struct PopoverView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(vm.autoOn ? accent : .white.opacity(0.55))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Otomatik Preset")
+                Text(loc.t("Automatic Preset", "Otomatik Preset"))
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(.white)
-                Text(vm.autoOn ? detectionShort : "kapalı")
+                Text(vm.autoOn ? detectionShort : loc.t("off", "kapalı"))
                     .font(.system(size: 9.5))
                     .foregroundStyle(.white.opacity(0.5))
                     .lineLimit(1).truncationMode(.tail)
@@ -297,11 +298,25 @@ struct PopoverView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
 
+    /// Auto-toggle subtitle, composed from structured detection state and localized here
+    /// (never parsed out of a pre-rendered string).
     private var detectionShort: String {
-        if let r = vm.detection.range(of: " [") {
-            return String(vm.detection[r.lowerBound...]).trimmingCharacters(in: .whitespaces)
+        switch vm.detectionStatus {
+        case .idle:
+            return ""
+        case .noSource:
+            return loc.t("No audio source", "Ses kaynağı yok")
+        case .unreadable:
+            let app = vm.detectionSourceApp.isEmpty ? "" : vm.detectionSourceApp + " — "
+            return app + loc.t("track couldn't be read (Automation permission?)", "şarkı okunamadı (Otomasyon izni?)")
+        case .playing:
+            var s = vm.detectionSourceApp.isEmpty ? "" : "\(vm.detectionSourceApp): "
+            s += vm.nowArtist.isEmpty ? vm.nowTitle : "\(vm.nowArtist) — \(vm.nowTitle)"
+            if vm.detectionSourceKind == .analyzing {
+                s += " · " + loc.t("analyzing…", "analiz…")
+            }
+            return s
         }
-        return vm.detection
     }
 
     // MARK: Preset chips (glass capsules)
@@ -323,7 +338,7 @@ struct PopoverView: View {
         let active = preset.name == vm.presetName && (!vm.autoOn || vm.autoHasSource)
         let chipColor = Theme.family(forPresetName: preset.name)?.accent ?? Theme.idleAccent
         return Button { vm.onSelectPreset(preset.name) } label: {
-            Text(preset.name)
+            Text(preset.displayName)
                 .font(.system(size: 10.5, weight: active ? .bold : .medium))
                 .foregroundStyle(active ? .black.opacity(0.88) : .white.opacity(0.9))
                 .padding(.horizontal, 11).padding(.vertical, 6)
@@ -360,20 +375,44 @@ struct PopoverView: View {
 
     private var settingsPanel: some View {
         VStack(spacing: 1) {
+            languageRow
+            Divider().overlay(.white.opacity(0.1)).padding(.vertical, 2)
             settingsRow(icon: vm.spotifyConnected ? "checkmark.seal.fill" : "music.note.list",
-                        title: vm.spotifyConnected ? "Spotify Bağlı (pre-fetch)" : "Spotify ile Bağlan…",
+                        title: vm.spotifyConnected ? loc.t("Spotify Connected (pre-fetch)", "Spotify Bağlı (pre-fetch)")
+                                                   : loc.t("Connect with Spotify…", "Spotify ile Bağlan…"),
                         tint: vm.spotifyConnected ? Color(hex: 0x1DB954) : .white,
                         action: vm.onConnectSpotify)
-            settingsRow(icon: "lock.shield", title: "Otomasyon izinlerini test et", action: vm.onTestAutomation)
-            settingsRow(icon: "play.rectangle", title: "YT Music erişimini test et", action: vm.onTestYTMusic)
+            settingsRow(icon: "lock.shield", title: loc.t("Test automation permissions", "Otomasyon izinlerini test et"), action: vm.onTestAutomation)
+            settingsRow(icon: "play.rectangle", title: loc.t("Test YT Music access", "YT Music erişimini test et"), action: vm.onTestYTMusic)
             settingsRow(icon: vm.loginEnabled ? "checkmark.circle.fill" : "power",
-                        title: "Login'de Başlat", tint: vm.loginEnabled ? accent : .white,
+                        title: loc.t("Launch at Login", "Açılışta Başlat"), tint: vm.loginEnabled ? accent : .white,
                         action: vm.onToggleLogin)
             Divider().overlay(.white.opacity(0.1)).padding(.vertical, 2)
-            settingsRow(icon: "xmark.circle", title: "Çıkış", tint: Color(hex: 0xFF6B6B), action: vm.onQuit)
+            settingsRow(icon: "xmark.circle", title: loc.t("Quit", "Çıkış"), tint: Color(hex: 0xFF6B6B), action: vm.onQuit)
         }
         .padding(7)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+    }
+
+    /// Language selector: English (default) / Türkçe.
+    private var languageRow: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "globe").font(.system(size: 11)).foregroundStyle(.white).frame(width: 16)
+            Text(loc.t("Language", "Dil")).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.95))
+            Spacer()
+            ForEach(AppLanguage.allCases, id: \.self) { lang in
+                let selected = loc.lang == lang
+                Button { vm.onSetLanguage(lang) } label: {
+                    Text(lang == .en ? "EN" : "TR")
+                        .font(.system(size: 10, weight: selected ? .bold : .medium))
+                        .foregroundStyle(selected ? .black.opacity(0.88) : .white.opacity(0.8))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(selected ? AnyShapeStyle(accent) : AnyShapeStyle(.white.opacity(0.12))))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
     }
 
     private func settingsRow(icon: String, title: String, tint: Color = .white,

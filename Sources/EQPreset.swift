@@ -286,4 +286,27 @@ extension EQPreset {
         // Voice
         .voice,
     ]
+
+    // MARK: Localized display name
+
+    /// `.name` is the immutable stable identity key (persisted, matched, and themed by it,
+    /// so it must never change). `displayName` is the localized label shown in the UI —
+    /// English by default, Turkish when the user selects it. The `.name` values themselves
+    /// ARE the Turkish strings, so Turkish returns `.name`; only English needs a lookup.
+    var displayName: String { Self.displayName(forName: name) }
+
+    static func displayName(forName name: String) -> String {
+        guard L.lang == .en else { return name }
+        return enDisplayNames[name] ?? name
+    }
+
+    private static let enDisplayNames: [String: String] = [
+        "Düz (EQ kapalı)":           "Flat (EQ off)",
+        "Chu II — Doğal (Harman)":   "Chu II — Natural (Harman)",
+        "Akustik / Folk / Country":  "Acoustic / Folk / Country",
+        "Klasik / Orkestral":        "Classical / Orchestral",
+        "Dünya Müziği":              "World Music",
+        "Indie / Alternatif":        "Indie / Alternative",
+        "Vokal / Diyalog / Podcast": "Vocal / Dialogue / Podcast",
+    ]
 }

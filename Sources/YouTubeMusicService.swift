@@ -75,24 +75,24 @@ enum YouTubeMusicService {
     static func diagnose(browser: BrowserKind) async -> String {
         let script = buildAppleScript(for: browser, runningJS: injectedJS)
         switch await AppleScriptRunner.run(script) {
-        case .appNotRunning:           return "• çalışmıyor"
-        case .permissionDenied:        return "⚠ otomasyon izni yok"
+        case .appNotRunning:           return L.t("• not running", "• çalışmıyor")
+        case .permissionDenied:        return L.t("⚠ no automation permission", "⚠ otomasyon izni yok")
         case .otherError(_, let msg):
             if msg.lowercased().contains("javascript") {
-                return "⚠ JS-from-AppleEvents kapalı (Developer menüsü)"
+                return L.t("⚠ JS-from-AppleEvents disabled (Developer menu)", "⚠ JS-from-AppleEvents kapalı (Developer menüsü)")
             }
             return "✗ \(msg.prefix(50))"
         case .success(let raw):
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty                  { return "• music.youtube.com sekmesi yok" }
+            if trimmed.isEmpty                  { return L.t("• no music.youtube.com tab", "• music.youtube.com sekmesi yok") }
             if trimmed.hasPrefix("ERROR:")      { return "⚠ \(trimmed.prefix(60))" }
             if let data = trimmed.data(using: .utf8),
                let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
-                let cur = snap.current.map { "\($0.artist) — \($0.title)" } ?? "(hiç çalmıyor)"
-                let nxt = snap.next.map { " | sıradaki: \($0.artist) — \($0.title)" } ?? ""
+                let cur = snap.current.map { "\($0.artist) — \($0.title)" } ?? L.t("(nothing playing)", "(hiç çalmıyor)")
+                let nxt = snap.next.map { L.t(" | next: ", " | sıradaki: ") + "\($0.artist) — \($0.title)" } ?? ""
                 return "✓ \(cur)\(nxt)"
             }
-            return "✗ JSON parse edilemedi"
+            return L.t("✗ JSON could not be parsed", "✗ JSON parse edilemedi")
         }
     }
 
