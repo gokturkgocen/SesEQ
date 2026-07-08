@@ -43,6 +43,23 @@ Now-playing information comes from Spotify (Web API, with optional queue pre-fet
 - Xcode Command Line Tools with the macOS 26 SDK (to build).
 - No Apple Developer account needed — see below.
 
+## Download
+
+Grab the latest `SesEQ-macos.zip` from [Releases](https://github.com/gokturkgocen/SesEQ/releases), unzip it, and move `SesEQ.app` to `/Applications`.
+
+The app is ad-hoc signed (no paid Apple Developer account), so macOS Gatekeeper will block it on first launch. To open it once:
+
+**Easiest (Terminal):**
+
+```bash
+xattr -dr com.apple.quarantine /Applications/SesEQ.app
+open /Applications/SesEQ.app
+```
+
+**Or via the GUI:** double-click `SesEQ` → when the warning appears, open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+
+You only need to do this once. Prefer to build it yourself? See below.
+
 ## Build & Install
 
 SesEQ builds with plain `swiftc` — there's no Xcode project to open.
