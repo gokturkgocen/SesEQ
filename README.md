@@ -42,6 +42,8 @@ SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer t
 
 ## How it works
 
+<p align="center"><img src="assets/architecture.png" width="100%" alt="SesEQ architecture: audio path (system audio → Core Audio tap → AVAudioUnitEQ → jack) and the genre→preset pipeline (MusicBrainz → iTunes → on-device CoreML classifier)"></p>
+
 **Audio path.** SesEQ creates a global Core Audio process tap (`muteBehavior = .muted`) plus a private aggregate device. The tapped system audio is fed through an `AVAudioUnitEQ` node and played back to the real output device. Because it uses the public Core Audio tap API, there's no virtual driver or kernel extension to install.
 
 **Where the EQ applies.** The EQ is active **only when you're listening through the built-in 3.5 mm headphone jack** (`transport = BuiltIn` and data source `hdpn`). On the built-in speakers, AirPods, any Bluetooth device, or a USB DAC, SesEQ automatically bypasses itself and leaves Apple's own DSP untouched. On Apple Silicon the speakers and the headphone jack share one device ID, so SesEQ watches the Core Audio data-source property to react correctly to plugging and unplugging.
@@ -113,6 +115,16 @@ The first time you use each feature, macOS prompts you. All are one-time grants:
 3. Plug in headphones via the 3.5 mm jack — the EQ engages automatically (and disengages on any other output).
 4. Leave **automatic mode** on and SesEQ follows the genre of whatever you're playing, or pin the neutral baseline preset from the popover.
 5. The popover shows the now-playing track, the detected genre and its source, a live spectrum, and the active EQ curve.
+
+## Built with Claude Code
+
+SesEQ was designed and written end-to-end with [Claude Code](https://claude.com/claude-code) — as a test of how far an AI pair can go on a real, native macOS app rather than a toy. That meant working through the genuinely hard parts, not just boilerplate:
+
+- **Core Audio process taps** (`muteBehavior = .muted` + a private aggregate device) to capture and re-route system audio with no virtual driver or kernel extension.
+- An offline **ONNX → CoreML** pipeline for the Discogs-EffNet classifier, with a hand-ported **mel-spectrogram front-end verified bit-exact against Essentia**.
+- The **MusicBrainz → iTunes → on-device classifier** genre-resolution chain, its edge-case handling, and this documentation.
+
+If you build with Claude and want to see a complete, shipped example — signal chain, ML, and UI — this repo is one.
 
 ## Credits / Third-party
 
