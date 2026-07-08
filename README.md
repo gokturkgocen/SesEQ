@@ -5,12 +5,23 @@
 ![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
 [![Latest release](https://img.shields.io/github/v/release/gokturkgocen/SesEQ)](https://github.com/gokturkgocen/SesEQ/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%20(code)-blue)](LICENSE)
+[![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-D97757?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
 
 **A system-wide equalizer for macOS that listens to what you're playing and picks the right EQ curve for you — automatically.**
 
 SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer to your Mac's audio system-wide. It runs entirely on-device: it captures system audio through a Core Audio process tap, runs it through a native `AVAudioUnitEQ`, and plays it back through your real output device — no virtual audio driver, no kernel extension, no background service to babysit. When automatic mode is on, SesEQ figures out the genre of the current track and switches to a matching preset on the fly.
 
 > The bundled correction baseline was measured and tuned for the **Moondrop Chu II** in-ear monitor, but that's just the default. SesEQ works with any headphones — every genre preset is a small delta on top of a single baseline curve you can treat as neutral, and the whole EQ is a set of standard parametric/shelf filters. Nothing about it is locked to one pair of earphones.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot-rock.png" width="46%" alt="SesEQ auto-detecting Queen as Rock, with a warm accent">
+  &nbsp;&nbsp;
+  <img src="assets/screenshot-edm.png" width="46%" alt="SesEQ auto-detecting Mahmut Orhan as EDM, with a blue accent">
+</p>
+
+<p align="center"><em>Same app, two tracks. SesEQ identifies the genre on its own — Queen → <strong>Rock</strong> (from the queue pre-fetch), Mahmut Orhan → <strong>EDM</strong> (from the catalog) — and the whole popover re-themes to match. No manual switching, no fiddling.</em></p>
 
 ## Features
 
@@ -113,4 +124,4 @@ The application's own source code is released under the **MIT License** — see 
 
 ---
 
-Made by **Göktürk Göcen**.
+Made by **Göktürk Göcen**, built with [**Claude Code**](https://claude.com/claude-code) — from the Core Audio tap plumbing and the ONNX→CoreML pipeline to the genre-detection heuristics and this README.
