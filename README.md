@@ -9,6 +9,10 @@
 
 **A system-wide equalizer for macOS that listens to what you're playing and picks the right EQ curve for you — automatically.**
 
+<p align="center">
+  <img src="assets/demo.gif" width="380" alt="SesEQ auto-detecting the genre of each track and re-theming the popover live as songs change">
+</p>
+
 SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer to your Mac's audio system-wide. It runs entirely on-device: it captures system audio through a Core Audio process tap, runs it through a native `AVAudioUnitEQ`, and plays it back through your real output device — no virtual audio driver, no kernel extension, no background service to babysit. When automatic mode is on, SesEQ figures out the genre of the current track and switches to a matching preset on the fly.
 
 > The bundled correction baseline was measured and tuned for the **Moondrop Chu II** in-ear monitor, but that's just the default. SesEQ works with any headphones — every genre preset is a small delta on top of a single baseline curve you can treat as neutral, and the whole EQ is a set of standard parametric/shelf filters. Nothing about it is locked to one pair of earphones.
