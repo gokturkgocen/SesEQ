@@ -1,5 +1,11 @@
 # SesEQ
 
+![Platform](https://img.shields.io/badge/platform-macOS%2026-000000?logo=apple&logoColor=white)
+![Arch](https://img.shields.io/badge/arch-Apple%20Silicon-555)
+![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
+[![Latest release](https://img.shields.io/github/v/release/gokturkgocen/SesEQ)](https://github.com/gokturkgocen/SesEQ/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT%20(code)-blue)](LICENSE)
+
 **A system-wide equalizer for macOS that listens to what you're playing and picks the right EQ curve for you — automatically.**
 
 SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer to your Mac's audio system-wide. It runs entirely on-device: it captures system audio through a Core Audio process tap, runs it through a native `AVAudioUnitEQ`, and plays it back through your real output device — no virtual audio driver, no kernel extension, no background service to babysit. When automatic mode is on, SesEQ figures out the genre of the current track and switches to a matching preset on the fly.
