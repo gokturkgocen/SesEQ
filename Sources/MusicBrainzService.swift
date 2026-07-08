@@ -27,13 +27,26 @@ actor MusicBrainzService {
     func artistGenres(name: String) async -> [WeightedGenre]? {
         let key = name.lowercased()
         if let cached = cache[key] { return cached.isEmpty ? nil : cached }
-        guard let mbid = await searchArtistMBID(name: name) else { cache[key] = []; return nil }
-        let genres = await fetchGenres(mbid: mbid)
-        cache[key] = genres
-        return genres.isEmpty ? nil : genres
+        // IMPORTANT: only cache HTTP-200-backed outcomes. A transient failure (timeout /
+        // 503 rate-limit) must NOT be cached as a permanent miss — otherwise a well-known
+        // artist (e.g. Scorpions) gets stuck falling through to the audio classifier for the
+        // rest of the session and is mislabeled (Scorpions → "World Music"). Retry next time.
+        switch await searchArtistMBID(name: name) {
+        case .failed:
+            return nil                    // transient — do not poison the cache
+        case .noMatch:
+            cache[key] = []               // genuinely unknown artist — cache the miss
+            return nil
+        case .found(let mbid):
+            guard let genres = await fetchGenres(mbid: mbid) else { return nil }  // request failed → don't cache
+            cache[key] = genres           // 200-backed (possibly empty) → cache
+            return genres.isEmpty ? nil : genres
+        }
     }
 
-    private func searchArtistMBID(name: String) async -> String? {
+    private enum SearchResult { case found(String), noMatch, failed }
+
+    private func searchArtistMBID(name: String) async -> SearchResult {
         var c = URLComponents(string: "\(Self.base)/artist")!
         c.queryItems = [
             URLQueryItem(name: "query", value: name),
@@ -41,16 +54,18 @@ actor MusicBrainzService {
             URLQueryItem(name: "limit", value: "3"),
         ]
         guard let url = c.url, let data = await get(url),
-              let obj = try? JSONDecoder().decode(ArtistSearch.self, from: data) else { return nil }
+              let obj = try? JSONDecoder().decode(ArtistSearch.self, from: data) else { return .failed }
         // Verify the name so an ambiguous query can't pull a different artist's genres.
         let match = obj.artists.first { artistNamesRoughlyMatch($0.name, name) } ?? obj.artists.first
-        return match?.id
+        return match.map { .found($0.id) } ?? .noMatch
     }
 
-    private func fetchGenres(mbid: String) async -> [WeightedGenre] {
+    /// Returns nil ONLY on request failure (so the caller won't cache it); an empty array
+    /// means the artist was found but carries no genre/tag votes.
+    private func fetchGenres(mbid: String) async -> [WeightedGenre]? {
         guard let url = URL(string: "\(Self.base)/artist/\(mbid)?inc=genres+tags&fmt=json"),
               let data = await get(url),
-              let obj = try? JSONDecoder().decode(ArtistDetail.self, from: data) else { return [] }
+              let obj = try? JSONDecoder().decode(ArtistDetail.self, from: data) else { return nil }
         // Prefer the curated `genres` list; fall back to raw `tags`. Both carry vote counts.
         let genres = obj.genres ?? []
         let src = genres.isEmpty ? (obj.tags ?? []) : genres
