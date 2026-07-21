@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 PROFILE="${PROVISIONING_PROFILE:-}"
 SIGN_ID="${SIGN_ID:-Apple Distribution}"
 APP="build/Eqlume-AppStore.app"
-PKG="build/Eqlume-1.0-build-2.pkg"
+PKG="build/Eqlume-1.0-build-3.pkg"
 
 if [[ -z "$PROFILE" || ! -f "$PROFILE" ]]; then
     echo "Set PROVISIONING_PROFILE to the downloaded Mac App Store provisioning profile."
@@ -20,6 +20,14 @@ fi
 
 SIGN_ID="$SIGN_ID" ./build.sh appstore
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
+# Downloaded profiles carry macOS's quarantine attribute. App Store validation
+# rejects any quarantined file inside the payload, so strip extended attributes
+# after embedding the profile and before producing the final signature.
+xattr -cr "$APP"
+if xattr -lr "$APP" 2>/dev/null | grep -q 'com.apple.quarantine'; then
+    echo "Quarantine attribute remains inside the app bundle."
+    exit 1
+fi
 codesign --force --deep --strict --options runtime --sign "$SIGN_ID" --entitlements Eqlume.appstore.entitlements "$APP"
 codesign --verify --deep --strict "$APP"
 
