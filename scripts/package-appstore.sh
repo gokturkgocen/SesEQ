@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 PROFILE="${PROVISIONING_PROFILE:-}"
 SIGN_ID="${SIGN_ID:-Apple Distribution}"
 APP="build/Eqlume-AppStore.app"
-PKG="build/Eqlume-1.0.pkg"
+PKG="build/Eqlume-1.0-build-2.pkg"
 
 if [[ -z "$PROFILE" || ! -f "$PROFILE" ]]; then
     echo "Set PROVISIONING_PROFILE to the downloaded Mac App Store provisioning profile."
@@ -22,6 +22,12 @@ SIGN_ID="$SIGN_ID" ./build.sh appstore
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 codesign --force --deep --strict --options runtime --sign "$SIGN_ID" --entitlements Eqlume.appstore.entitlements "$APP"
 codesign --verify --deep --strict "$APP"
+
+SIGNED_ENTITLEMENTS="$(codesign -d --entitlements :- "$APP" 2>/dev/null)"
+[[ "$SIGNED_ENTITLEMENTS" == *"3R9ULKMUXY.com.gokturkgocen.Eqlume"* ]] || {
+    echo "Signed application identifier does not match the provisioning profile."
+    exit 1
+}
 
 INSTALLER_ID="${INSTALLER_ID:-3rd Party Mac Developer Installer}"
 if ! security find-identity -v | grep -Fq "$INSTALLER_ID"; then
