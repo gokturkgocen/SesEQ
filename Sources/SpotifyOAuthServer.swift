@@ -8,7 +8,7 @@ import Network
 final class SpotifyOAuthServer {
     private let port: NWEndpoint.Port
     private var listener: NWListener?
-    private let queue = DispatchQueue(label: "com.gokturkgocen.SesEQ.oauth", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.gokturkgocen.Eqlume.oauth", qos: .userInitiated)
 
     init(port: UInt16) {
         self.port = NWEndpoint.Port(rawValue: port) ?? 38123
@@ -42,8 +42,8 @@ final class SpotifyOAuthServer {
                         let (code, state) = self.parseCodeAndState(from: rawRequest)
                         let success = code != nil && state == expectedState
                         let body = success
-                            ? "<!doctype html><meta charset=utf-8><title>" + L.t("Connected", "Bağlandı") + "</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#1db954'>" + L.t("✓ SesEQ connected to Spotify.", "✓ SesEQ Spotify'a bağlandı.") + "<br><span style='color:#666;font-size:13px'>" + L.t("You can close this tab.", "Bu sekmeyi kapatabilirsin.") + "</span></body>"
-                            : "<!doctype html><meta charset=utf-8><title>" + L.t("Error", "Hata") + "</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#c00'>" + L.t("✗ Connection failed.", "✗ Bağlantı başarısız.") + "<br><span style='color:#666;font-size:13px'>" + L.t("Go back to SesEQ and try again.", "SesEQ'ya geri dönüp tekrar dene.") + "</span></body>"
+                            ? "<!doctype html><meta charset=utf-8><title>" + L.t("Connected", "Bağlandı") + "</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#1db954'>" + L.t("✓ Eqlume connected to Spotify.", "✓ Eqlume Spotify'a bağlandı.") + "<br><span style='color:#666;font-size:13px'>" + L.t("You can close this tab.", "Bu sekmeyi kapatabilirsin.") + "</span></body>"
+                            : "<!doctype html><meta charset=utf-8><title>" + L.t("Error", "Hata") + "</title><body style='font:16px -apple-system;text-align:center;margin-top:80px;color:#c00'>" + L.t("✗ Connection failed.", "✗ Bağlantı başarısız.") + "<br><span style='color:#666;font-size:13px'>" + L.t("Go back to Eqlume and try again.", "Eqlume'ya geri dönüp tekrar dene.") + "</span></body>"
                         self.sendHTTPResponse(body: body, on: conn) {
                             conn.cancel()
                             if let code, state == expectedState {

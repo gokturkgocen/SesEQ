@@ -3,19 +3,25 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>SesEQ</string>
+    <string>Eqlume</string>
     <key>CFBundleDisplayName</key>
-    <string>SesEQ</string>
+    <string>Eqlume</string>
     <key>CFBundleIdentifier</key>
-    <string>com.gokturkgocen.SesEQ</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>com.gokturkgocen.Eqlume</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Göktürk Göcen</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>SesEQ</string>
+    <string>Eqlume</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
@@ -27,8 +33,8 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>SesEQ needs audio recording permission to capture system audio and apply the equalizer. Audio is never recorded to disk or sent anywhere — it is only processed and played straight back to your output device.</string>
+    <string>Eqlume needs audio recording permission to capture system audio and apply the equalizer. Audio is never recorded to disk or sent anywhere — it is only processed and played straight back to your output device.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>SesEQ communicates with Spotify, Apple Music, and browsers to read the currently playing track (title and artist) for automatic preset selection, and to send transport commands (previous / play-pause / next) when you use the playback controls.</string>
+    <string>Eqlume communicates with Spotify, Apple Music, and browsers to read the currently playing track (title and artist) for automatic preset selection, and to send transport commands (previous / play-pause / next) when you use the playback controls.</string>
 </dict>
 </plist>

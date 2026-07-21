@@ -1,4 +1,4 @@
-# SesEQ
+# Eqlume
 
 ![Platform](https://img.shields.io/badge/platform-macOS%2026-000000?logo=apple&logoColor=white)
 ![Arch](https://img.shields.io/badge/arch-Apple%20Silicon-555)
@@ -10,22 +10,22 @@
 **A system-wide equalizer for macOS that listens to what you're playing and picks the right EQ curve for you — automatically.**
 
 <p align="center">
-  <img src="assets/demo.gif" width="380" alt="SesEQ auto-detecting the genre of each track and re-theming the popover live as songs change">
+  <img src="assets/demo.gif" width="380" alt="Eqlume auto-detecting the genre of each track and re-theming the popover live as songs change">
 </p>
 
-SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer to your Mac's audio system-wide. It runs entirely on-device: it captures system audio through a Core Audio process tap, runs it through a native `AVAudioUnitEQ`, and plays it back through your real output device — no virtual audio driver, no kernel extension, no background service to babysit. When automatic mode is on, SesEQ figures out the genre of the current track and switches to a matching preset on the fly.
+Eqlume is a lightweight menu-bar app that applies a real, transparent equalizer to your Mac's audio system-wide. It runs entirely on-device: it captures system audio through a Core Audio process tap, runs it through a native `AVAudioUnitEQ`, and plays it back through your real output device — no virtual audio driver, no kernel extension, no background service to babysit. When automatic mode is on, Eqlume figures out the genre of the current track and switches to a matching preset on the fly.
 
-> The bundled correction baseline was measured and tuned for the **Moondrop Chu II** in-ear monitor, but that's just the default. SesEQ works with any headphones — every genre preset is a small delta on top of a single baseline curve you can treat as neutral, and the whole EQ is a set of standard parametric/shelf filters. Nothing about it is locked to one pair of earphones.
+> The bundled correction baseline was measured and tuned for the **Moondrop Chu II** in-ear monitor, but that's just the default. Eqlume works with any headphones — every genre preset is a small delta on top of a single baseline curve you can treat as neutral, and the whole EQ is a set of standard parametric/shelf filters. Nothing about it is locked to one pair of earphones.
 
 ## Screenshots
 
 <p align="center">
-  <img src="assets/screenshot-rock.png" width="46%" alt="SesEQ auto-detecting Queen as Rock, with a warm accent">
+  <img src="assets/app-store/01-follows-your-music.png" width="46%" alt="Eqlume automatic EQ product view">
   &nbsp;&nbsp;
-  <img src="assets/screenshot-edm.png" width="46%" alt="SesEQ auto-detecting Mahmut Orhan as EDM, with a blue accent">
+  <img src="assets/app-store/02-see-the-sound.png" width="46%" alt="Eqlume live spectrum product view">
 </p>
 
-<p align="center"><em>Same app, two tracks. SesEQ identifies the genre on its own — Queen → <strong>Rock</strong> (from the queue pre-fetch), Mahmut Orhan → <strong>EDM</strong> (from the catalog) — and the whole popover re-themes to match. No manual switching, no fiddling.</em></p>
+<p align="center"><em>Same app, two tracks. Eqlume identifies the genre on its own — Queen → <strong>Rock</strong> (from the queue pre-fetch), Mahmut Orhan → <strong>EDM</strong> (from the catalog) — and the whole popover re-themes to match. No manual switching, no fiddling.</em></p>
 
 ## Features
 
@@ -42,17 +42,17 @@ SesEQ is a lightweight menu-bar app that applies a real, transparent equalizer t
 
 ## How it works
 
-<p align="center"><img src="assets/architecture.png" width="100%" alt="SesEQ architecture: audio path (system audio → Core Audio tap → AVAudioUnitEQ → jack) and the genre→preset pipeline (MusicBrainz → iTunes → on-device CoreML classifier)"></p>
+<p align="center"><img src="assets/architecture.png" width="100%" alt="Eqlume architecture: audio path (system audio → Core Audio tap → AVAudioUnitEQ → jack) and the genre→preset pipeline (MusicBrainz → iTunes → on-device CoreML classifier)"></p>
 
-**Audio path.** SesEQ creates a global Core Audio process tap (`muteBehavior = .muted`) plus a private aggregate device. The tapped system audio is fed through an `AVAudioUnitEQ` node and played back to the real output device. Because it uses the public Core Audio tap API, there's no virtual driver or kernel extension to install.
+**Audio path.** Eqlume creates a global Core Audio process tap (`muteBehavior = .muted`) plus a private aggregate device. The tapped system audio is fed through an `AVAudioUnitEQ` node and played back to the real output device. Because it uses the public Core Audio tap API, there's no virtual driver or kernel extension to install.
 
-**Where the EQ applies.** The EQ is active **only when you're listening through the built-in 3.5 mm headphone jack** (`transport = BuiltIn` and data source `hdpn`). On the built-in speakers, AirPods, any Bluetooth device, or a USB DAC, SesEQ automatically bypasses itself and leaves Apple's own DSP untouched. On Apple Silicon the speakers and the headphone jack share one device ID, so SesEQ watches the Core Audio data-source property to react correctly to plugging and unplugging.
+**Where the EQ applies.** The EQ is active **only when you're listening through the built-in 3.5 mm headphone jack** (`transport = BuiltIn` and data source `hdpn`). On the built-in speakers, AirPods, any Bluetooth device, or a USB DAC, Eqlume automatically bypasses itself and leaves Apple's own DSP untouched. On Apple Silicon the speakers and the headphone jack share one device ID, so Eqlume watches the Core Audio data-source property to react correctly to plugging and unplugging.
 
 **How it picks a preset.** For each track, automatic mode resolves a genre in this order:
 
 1. **MusicBrainz** (primary) — community genre votes with counts, weighted into a preset family. Free, no API key. Accurate at the artist level where other catalogs mislabel.
 2. **iTunes Search API** (fallback) — the track's primary genre, verified against the artist name to reject confident wrong matches.
-3. **On-device CoreML classifier** (catalog miss) — when neither catalog can identify the track, SesEQ classifies from the audio content itself using a bundled model, independent of any catalog.
+3. **On-device CoreML classifier** (catalog miss) — when neither catalog can identify the track, Eqlume classifies from the audio content itself using a bundled model, independent of any catalog.
 4. If everything else fails, it defaults to a pop preset.
 
 Now-playing information comes from Spotify (Web API, with optional queue pre-fetch), YouTube Music (browser DOM), and Apple Music / browsers (AppleScript).
@@ -68,32 +68,36 @@ Now-playing information comes from Spotify (Web API, with optional queue pre-fet
 
 ## Download
 
-Grab the latest `SesEQ-macos.zip` from [Releases](https://github.com/gokturkgocen/SesEQ/releases), unzip it, and move `SesEQ.app` to `/Applications`.
+Grab the latest `Eqlume-macos.zip` from [Releases](https://github.com/gokturkgocen/SesEQ/releases), unzip it, and move `Eqlume.app` to `/Applications`.
 
 The app is ad-hoc signed (no paid Apple Developer account), so macOS Gatekeeper will block it on first launch. To open it once:
 
 **Easiest (Terminal):**
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/SesEQ.app
-open /Applications/SesEQ.app
+xattr -dr com.apple.quarantine /Applications/Eqlume.app
+open /Applications/Eqlume.app
 ```
 
-**Or via the GUI:** double-click `SesEQ` → when the warning appears, open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+**Or via the GUI:** double-click `Eqlume` → when the warning appears, open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
 
 You only need to do this once. Prefer to build it yourself? See below.
 
 ## Build & Install
 
-SesEQ builds with plain `swiftc` — there's no Xcode project to open.
+Eqlume builds with plain `swiftc` — there's no Xcode project to open.
 
 ```bash
 git clone https://github.com/gokturkgocen/SesEQ.git
 cd SesEQ
-./build.sh install      # builds and copies SesEQ.app to /Applications
+./build.sh install      # builds and copies Eqlume.app to /Applications
 ```
 
-`./build.sh` alone just produces `build/SesEQ.app`; adding `install` also copies it to `/Applications`.
+`./build.sh` alone just produces `build/Eqlume.app`; adding `install` also copies it to `/Applications`.
+
+For the isolated Mac App Store sandbox build and preflight checks, see
+[`APP_STORE_RELEASE.md`](APP_STORE_RELEASE.md). This build intentionally excludes the
+non-commercial Discogs-EffNet model while preserving catalog-based automatic presets.
 
 **Signing.** No paid Apple Developer account is required. If you have a local **Apple Development** signing identity (a free Apple ID provides one), the build uses it — re-signing with a stable identity keeps your macOS privacy (TCC) permission grants intact across rebuilds. If you have no signing identity at all, `build.sh` automatically falls back to **ad-hoc signing**, which needs no certificate. You can force a specific identity with `SIGN_ID="Your Identity" ./build.sh`.
 
@@ -105,20 +109,20 @@ The first time you use each feature, macOS prompts you. All are one-time grants:
 
 - **Audio Recording** — required to capture system audio for the EQ. Audio is only processed and sent straight back to your output; it is never recorded to disk or transmitted.
 - **Automation** for Spotify / Music / Chrome / Safari — used to read the currently playing track for automatic preset selection, and to send transport commands (previous / play-pause / next) when you use the playback controls.
-- **Chrome only**: enable *View → Developer → Allow JavaScript from Apple Events* so SesEQ can read the YouTube Music player state.
+- **Chrome only**: enable *View → Developer → Allow JavaScript from Apple Events* so Eqlume can read the YouTube Music player state.
 - **Spotify pre-fetch (optional)**: connect from the settings panel by pasting a Client ID from your Spotify developer dashboard (redirect URI `http://127.0.0.1:38123/cb`). Tokens are stored in your macOS Keychain.
 
 ## Usage
 
-1. Launch SesEQ — a menu-bar icon appears (no dock icon).
+1. Launch Eqlume — a menu-bar icon appears (no dock icon).
 2. Click the icon to open the popover, then enable the EQ.
 3. Plug in headphones via the 3.5 mm jack — the EQ engages automatically (and disengages on any other output).
-4. Leave **automatic mode** on and SesEQ follows the genre of whatever you're playing, or pin the neutral baseline preset from the popover.
+4. Leave **automatic mode** on and Eqlume follows the genre of whatever you're playing, or pin the neutral baseline preset from the popover.
 5. The popover shows the now-playing track, the detected genre and its source, a live spectrum, and the active EQ curve.
 
 ## Built with Claude Code
 
-SesEQ was designed and written end-to-end with [Claude Code](https://claude.com/claude-code) — as a test of how far an AI pair can go on a real, native macOS app rather than a toy. That meant working through the genuinely hard parts, not just boilerplate:
+Eqlume was designed and written end-to-end with [Claude Code](https://claude.com/claude-code) — as a test of how far an AI pair can go on a real, native macOS app rather than a toy. That meant working through the genuinely hard parts, not just boilerplate:
 
 - **Core Audio process taps** (`muteBehavior = .muted` + a private aggregate device) to capture and re-route system audio with no virtual driver or kernel extension.
 - An offline **ONNX → CoreML** pipeline for the Discogs-EffNet classifier, with a hand-ported **mel-spectrogram front-end verified bit-exact against Essentia**.
@@ -128,7 +132,7 @@ If you build with Claude and want to see a complete, shipped example — signal 
 
 ## Credits / Third-party
 
-SesEQ bundles a third-party machine-learning model for on-device audio classification: **Discogs-EffNet** by **MTG-UPF** (Music Technology Group, Universitat Pompeu Fabra), from the Essentia model collection. The compiled CoreML model ships in `Resources/DiscogsEffNet.mlmodelc`, and the offline conversion pipeline lives in `ml-pipeline/`.
+Eqlume bundles a third-party machine-learning model for on-device audio classification: **Discogs-EffNet** by **MTG-UPF** (Music Technology Group, Universitat Pompeu Fabra), from the Essentia model collection. The compiled CoreML model ships in `Resources/DiscogsEffNet.mlmodelc`, and the offline conversion pipeline lives in `ml-pipeline/`.
 
 See [`THIRD-PARTY.md`](THIRD-PARTY.md) for full attribution and license terms of every third-party component.
 

@@ -2,9 +2,10 @@ import Foundation
 import Security
 
 /// Tiny keychain wrapper for storing Spotify OAuth tokens and the user-supplied Client ID.
-/// All entries share the `com.gokturkgocen.SesEQ` service so they're easy to wipe via Keychain Access.
+/// All entries share the `com.gokturkgocen.Eqlume` service so they're easy to wipe via Keychain Access.
 enum SpotifyKeychain {
-    private static let service = "com.gokturkgocen.SesEQ"
+    private static let service = "com.gokturkgocen.Eqlume"
+    private static let legacyService = "com.gokturkgocen.SesEQ"
 
     enum Account: String {
         case clientID     = "spotify.client_id"
@@ -28,6 +29,16 @@ enum SpotifyKeychain {
     }
 
     static func get(_ account: Account) -> String? {
+        if let value = read(account, service: service) { return value }
+        // One-time, non-destructive migration from the development-name build.
+        if let legacyValue = read(account, service: legacyService) {
+            set(legacyValue, for: account)
+            return legacyValue
+        }
+        return nil
+    }
+
+    private static func read(_ account: Account, service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

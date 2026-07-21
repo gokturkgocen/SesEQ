@@ -71,5 +71,7 @@ final class EQViewModel: ObservableObject {
     var onTestYTMusic: () -> Void = {}
     var onToggleLogin: () -> Void = {}
     var onSetLanguage: (AppLanguage) -> Void = { _ in }
+    var onOpenPrivacy: () -> Void = {}
+    var onOpenLicenses: () -> Void = {}
     var onQuit: () -> Void = {}
 }

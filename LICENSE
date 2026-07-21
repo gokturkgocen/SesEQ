@@ -2,9 +2,9 @@ MIT License
 
 Copyright (c) 2026 Göktürk Göcen
 
-SCOPE: This MIT License applies ONLY to the SesEQ source code authored by the
+SCOPE: This MIT License applies ONLY to the Eqlume source code authored by the
 copyright holder — the Swift sources in `Sources/`, `build.sh`, the Python scripts
-in `ml-pipeline/`, `Info.plist`, and `SesEQ.entitlements`. It does NOT apply to the
+in `ml-pipeline/`, `Info.plist`, and `Eqlume.entitlements`. It does NOT apply to the
 bundled third-party machine-learning model (`Resources/DiscogsEffNet.mlmodelc` and
 `ml-pipeline/DiscogsEffNet.mlpackage`), which is separately licensed under
 CC BY-NC-SA 4.0 by MTG-UPF. See THIRD-PARTY.md for details. Because that model is

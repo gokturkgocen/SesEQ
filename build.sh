@@ -2,9 +2,32 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="SesEQ"
+APP_NAME="Eqlume"
 BUILD_DIR="./build"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+BUILD_FLAVOR="${1:-development}"
+ENTITLEMENTS="Eqlume.entitlements"
+SWIFT_FLAGS=()
+BUNDLE_CLASSIFIER=true
+
+if [[ "$BUILD_FLAVOR" == "sandbox-probe" ]]; then
+    APP_NAME="Eqlume-SandboxProbe"
+    APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+    ENTITLEMENTS="Eqlume.appstore.entitlements"
+    SWIFT_FLAGS+=("-D" "SANDBOX_PROBE")
+    BUNDLE_CLASSIFIER=false
+elif [[ "$BUILD_FLAVOR" == "appstore" ]]; then
+    APP_NAME="Eqlume-AppStore"
+    APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+    ENTITLEMENTS="Eqlume.appstore.entitlements"
+    SWIFT_FLAGS+=("-D" "APP_STORE")
+    BUNDLE_CLASSIFIER=false
+elif [[ "$BUILD_FLAVOR" == "screenshots" ]]; then
+    APP_NAME="Eqlume-Screenshots"
+    APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+    SWIFT_FLAGS+=("-D" "APP_STORE_SCREENSHOTS")
+    BUNDLE_CLASSIFIER=false
+fi
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
@@ -12,19 +35,36 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 cp Info.plist "$APP_BUNDLE/Contents/Info.plist"
 
+if [[ "$BUILD_FLAVOR" == "sandbox-probe" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.gokturkgocen.Eqlume.SandboxProbe" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Eqlume Sandbox Probe" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName Eqlume-SandboxProbe" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Eqlume-SandboxProbe" "$APP_BUNDLE/Contents/Info.plist"
+elif [[ "$BUILD_FLAVOR" == "appstore" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Eqlume-AppStore" "$APP_BUNDLE/Contents/Info.plist"
+elif [[ "$BUILD_FLAVOR" == "screenshots" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.gokturkgocen.Eqlume.Screenshots" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Eqlume Screenshots" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName Eqlume-Screenshots" "$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable Eqlume-Screenshots" "$APP_BUNDLE/Contents/Info.plist"
+fi
+
 # Bundle ML resources: CoreML model, mel filterbank, style labels, self-test vectors.
 RES="$APP_BUNDLE/Contents/Resources"
 [ -f Resources/AppIcon.icns ]            && cp Resources/AppIcon.icns "$RES/"
-[ -d Resources/DiscogsEffNet.mlmodelc ]  && cp -R Resources/DiscogsEffNet.mlmodelc "$RES/"
-[ -f Resources/mel_filterbank_96x257.f32 ] && cp Resources/mel_filterbank_96x257.f32 "$RES/"
-[ -f Resources/discogs_styles.txt ]      && cp Resources/discogs_styles.txt "$RES/"
-[ -f Resources/selftest_input.f32 ]      && cp Resources/selftest_input.f32 "$RES/"
-[ -f Resources/selftest_mel.f32 ]        && cp Resources/selftest_mel.f32 "$RES/"
+if [[ "$BUNDLE_CLASSIFIER" == true ]]; then
+    [ -d Resources/DiscogsEffNet.mlmodelc ]  && cp -R Resources/DiscogsEffNet.mlmodelc "$RES/"
+    [ -f Resources/mel_filterbank_96x257.f32 ] && cp Resources/mel_filterbank_96x257.f32 "$RES/"
+    [ -f Resources/discogs_styles.txt ]      && cp Resources/discogs_styles.txt "$RES/"
+    [ -f Resources/selftest_input.f32 ]      && cp Resources/selftest_input.f32 "$RES/"
+    [ -f Resources/selftest_mel.f32 ]        && cp Resources/selftest_mel.f32 "$RES/"
+fi
 
 SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
 
 swiftc \
     -O \
+    ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} \
     -target arm64-apple-macos26.0 \
     -sdk "$SDK_PATH" \
     -framework Cocoa \
@@ -42,23 +82,23 @@ swiftc \
 # across rebuilds); if none exists, fall back to ad-hoc signing so anyone can build without
 # an Apple Developer account. Override with: SIGN_ID="Your Identity" ./build.sh
 SIGN_ID="${SIGN_ID:-Apple Development}"
-if codesign --force --sign "$SIGN_ID" --entitlements SesEQ.entitlements --options runtime "$APP_BUNDLE" 2>/dev/null \
-   || codesign --force --sign "$SIGN_ID" --entitlements SesEQ.entitlements "$APP_BUNDLE" 2>/dev/null; then
+if codesign --force --sign "$SIGN_ID" --entitlements "$ENTITLEMENTS" --options runtime "$APP_BUNDLE" 2>/dev/null \
+   || codesign --force --sign "$SIGN_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE" 2>/dev/null; then
     echo "Signed with: $SIGN_ID"
 else
     echo "No '$SIGN_ID' identity found — using ad-hoc signing."
-    codesign --force --sign - --entitlements SesEQ.entitlements "$APP_BUNDLE"
+    codesign --force --sign - --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 fi
 
 xattr -rc "$APP_BUNDLE" 2>/dev/null || true
 
 echo "Built: $APP_BUNDLE"
 
-if [[ "${1:-}" == "install" ]]; then
+if [[ "$BUILD_FLAVOR" == "install" ]]; then
     rm -rf "/Applications/$APP_NAME.app"
     cp -R "$APP_BUNDLE" "/Applications/"
     # Remove the build copy so Spotlight/Launchpad only ever show the installed app
-    # (otherwise two "SesEQ" entries get indexed).
+    # (otherwise two "Eqlume" entries get indexed).
     rm -rf "$APP_BUNDLE"
     echo "Installed to /Applications/$APP_NAME.app"
 fi

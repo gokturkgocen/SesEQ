@@ -1,4 +1,4 @@
-# SesEQ
+# Eqlume
 
 System-wide equalizer for macOS, originally tuned for the **Moondrop Chu II IEM on the
 MacBook Air M4 3.5mm headphone jack** (but usable with any headphones). Auto-selects a
@@ -8,7 +8,7 @@ MIT for the app's own code; the bundled ML model is CC BY-NC-SA 4.0 (see LICENSE
 ## Build / run
 
 ```bash
-./build.sh            # builds build/SesEQ.app (signs with Apple Development if present, else ad-hoc)
+./build.sh            # builds build/Eqlume.app (signs with Apple Development if present, else ad-hoc)
 ./build.sh install    # also copies to /Applications and is the normal deploy step
 ```
 - Plain `swiftc`, no Xcode project. All `Sources/*.swift` compiled together.
@@ -29,12 +29,12 @@ MIT for the app's own code; the bundled ML model is CC BY-NC-SA 4.0 (see LICENSE
   speakers, AirPods, any Bluetooth, USB DACs → auto-bypass (Apple's own DSP is left alone).
   Logic in `CoreAudioHelpers.outputIsBuiltinHeadphoneJack` + `AudioEngine.shouldProcessForCurrentDevice`.
 - **Muted-tap teardown INVARIANT (do not break):** the tap is a *global* `muteBehavior = .muted`
-  tap — while it exists it silences the whole system except SesEQ. So teardown must be bulletproof:
+  tap — while it exists it silences the whole system except Eqlume. So teardown must be bulletproof:
   `teardownAudioResources()` is idempotent and NEVER guarded by `isRunning`; `startCore()` is
   exception-safe (a `defer` tears everything down on any partial-start throw); `stopCore()` always
   tears down (no `guard isRunning` early return). Past bug: a start that failed mid-way during a
   device hot-plug left an **orphaned muted tap** (`isRunning=false` but tap alive → every later
-  `stopCore` no-op'd) → the whole Mac stayed muted until SesEQ quit. Also: on Apple Silicon the
+  `stopCore` no-op'd) → the whole Mac stayed muted until Eqlume quit. Also: on Apple Silicon the
   built-in speakers and 3.5mm jack share ONE device ID, so a headphone unplug flips
   `kAudioDevicePropertyDataSource` (ispk↔hdpn) WITHOUT a default-device change —
   `AudioEngine.updateDataSourceListener` watches that so `reconcile()` runs on plug/unplug too.
@@ -125,7 +125,7 @@ fallback). `buildAppleScript(for:runningJS:)` is the shared injector for both re
 ## Localization (`Localization.swift`)
 
 - **Runtime language switch, English default, Turkish selectable** (settings panel). `Loc.shared`
-  is a `@MainActor ObservableObject` with `@Published lang` persisted in UserDefaults (`SesEQ.language`);
+  is a `@MainActor ObservableObject` with `@Published lang` persisted in UserDefaults (`Eqlume.language`);
   views that observe it re-render on switch. `L` is a non-actor mirror (reads UserDefaults) for use
   off the main actor / in value types. Strings are inline: `loc.t("English", "Türkçe")` / `L.t(...)` —
   no `.strings` bundling, no key table, no missing-key bugs.

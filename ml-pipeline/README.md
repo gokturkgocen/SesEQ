@@ -1,6 +1,6 @@
-# SesEQ ML pipeline — audio-content genre classifier
+# Eqlume ML pipeline — audio-content genre classifier
 
-Offline pipeline that produces the catalog-independent genre classifier SesEQ uses
+Offline pipeline that produces the catalog-independent genre classifier Eqlume uses
 when Spotify/iTunes lookup fails (obscure tracks not in any catalog).
 
 ## What it produces (already bundled into the app under `../Resources/`)

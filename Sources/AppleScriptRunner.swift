@@ -14,7 +14,7 @@ enum AppleScriptResult {
 /// AppleScript blocks the main thread, so we run on a dedicated background queue
 /// and bridge back via async.
 enum AppleScriptRunner {
-    private static let queue = DispatchQueue(label: "com.gokturkgocen.SesEQ.applescript", qos: .userInitiated)
+    private static let queue = DispatchQueue(label: "com.gokturkgocen.Eqlume.applescript", qos: .userInitiated)
 
     /// Returns just the string output, or nil on any failure. Use `run(_:)` for diagnostics.
     static func runString(_ source: String) async -> String? {

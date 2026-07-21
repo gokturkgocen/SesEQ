@@ -5,6 +5,7 @@ import SwiftUI
 @available(macOS 26.0, *)
 @MainActor
 final class StatusBarController: NSObject, NSWindowDelegate {
+    static let onboardingKey = "Eqlume.hasSeenOnboarding"
     private let statusItem: NSStatusItem
     private let audio = AudioEngine()
     private let loginItem = SMAppService.mainApp
@@ -19,8 +20,8 @@ final class StatusBarController: NSObject, NSWindowDelegate {
     private var lastCurvePreset: String = ""
     private var lastLoadedArtURL: String?
 
-    private let presetDefaultsKey = "SesEQ.activePresetName"
-    private let autoDefaultsKey   = "SesEQ.autoEnabled"
+    private let presetDefaultsKey = "Eqlume.activePresetName"
+    private let autoDefaultsKey   = "Eqlume.autoEnabled"
 
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -41,9 +42,27 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         syncVM()
     }
 
+#if SANDBOX_PROBE
+    /// One-shot diagnostic used only by `./build.sh sandbox-probe`. It never ships in
+    /// development or App Store binaries and leaves the installed app untouched.
+    func runSandboxProbe() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self else { return }
+            self.audio.setEnabled(true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                let result = self.audio.isRunning ? "PASS" : "FAIL"
+                let detail = self.audio.lastError ?? self.audio.bypassReason ?? "none"
+                print("EQLUME_SANDBOX_PROBE=\(result) detail=\(detail)")
+                self.audio.setEnabled(false)
+                NSApplication.shared.terminate(nil)
+            }
+        }
+    }
+#endif
+
     private func configureButton() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "SesEQ")
+        button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Eqlume")
         button.image?.isTemplate = true
         button.action = #selector(togglePanel)
         button.target = self
@@ -61,7 +80,14 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         vm.onTestYTMusic    = { [weak self] in self?.testYouTubeMusic() }
         vm.onToggleLogin    = { [weak self] in self?.toggleLoginItem() }
         vm.onSetLanguage    = { [weak self] lang in self?.setLanguage(lang) }
+        vm.onOpenPrivacy    = { Self.openProjectPage("PRIVACY.md") }
+        vm.onOpenLicenses   = { Self.openProjectPage("THIRD-PARTY.md") }
         vm.onQuit           = { NSApplication.shared.terminate(nil) }
+    }
+
+    private static func openProjectPage(_ path: String) {
+        guard let url = URL(string: "https://github.com/gokturkgocen/SesEQ/blob/main/\(path)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func setLanguage(_ lang: AppLanguage) {
@@ -79,8 +105,8 @@ final class StatusBarController: NSObject, NSWindowDelegate {
     private func buildPanel() {
         // HARD width via Auto Layout: a width constraint is not a "proposal" SwiftUI can
         // ignore (unlike .frame on a raw NSHostingView, which auto-sizes wider and gets
-        // clipped). Pinning the hosting view to exactly 318 forces SwiftUI to lay out at
-        // 318 → long text truncates instead of overflowing.
+        // clipped). Pinning the hosting view to the panel width keeps long text truncating
+        // instead of overflowing.
         let hv = NSHostingView(rootView: PopoverView(vm: vm))
         hv.translatesAutoresizingMaskIntoConstraints = false
         hostingView = hv
@@ -89,8 +115,8 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         container.addSubview(hv)
         // Pin ONLY leading+top+width. NOT trailing/bottom — pinning both edges to a
         // possibly-wider container would force the hosting view to stretch and break the
-        // 318 width (the bug that made content overflow). With leading+width only, the
-        // hosting view is ALWAYS exactly 318 and the container hugs it.
+        // panel width (the bug that made content overflow). With leading+width only, the
+        // hosting view and container stay in lockstep.
         NSLayoutConstraint.activate([
             hv.widthAnchor.constraint(equalToConstant: Self.panelWidth),
             hv.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -118,13 +144,13 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         if panel.isVisible { hidePanel() } else { showPanel() }
     }
 
-    static let panelWidth: CGFloat = 318
+    static let panelWidth: CGFloat = 336
 
-    private func showPanel() {
+    func showPanel() {
         syncVM()
         guard let button = statusItem.button, let bw = button.window else { return }
 
-        // Measure content height with the width hard-pinned to 318.
+        // Measure content height with the width hard-pinned to the panel width.
         hostingView.layoutSubtreeIfNeeded()
         let contentH = max(hostingView.fittingSize.height, 1)
         let screenH = (bw.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
@@ -309,7 +335,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
     private func configureButtonState() {
         guard let button = statusItem.button else { return }
         let symbol = audio.isRunning ? "waveform.path.ecg" : "waveform"
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "SesEQ")
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Eqlume")
         button.image?.isTemplate = true
     }
 
@@ -344,8 +370,8 @@ final class StatusBarController: NSObject, NSWindowDelegate {
                 case .otherError(let c, let m): report += "✗ \(name): " + loc.t("error", "hata") + " \(c) — \(m.prefix(60))\n"
                 }
             }
-            report += loc.t("\nIf you see ⚠: System Settings → Privacy & Security → Automation → SesEQ",
-                            "\n⚠ varsa: Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → SesEQ")
+            report += loc.t("\nIf you see ⚠: System Settings → Privacy & Security → Automation → Eqlume",
+                            "\n⚠ varsa: Sistem Ayarları → Gizlilik ve Güvenlik → Otomasyon → Eqlume")
             let alert = NSAlert()
             alert.messageText = loc.t("Automation access status", "Otomasyon erişim durumu")
             alert.informativeText = report
@@ -382,8 +408,8 @@ final class StatusBarController: NSObject, NSWindowDelegate {
             let loc = Loc.shared
             let alert = NSAlert()
             alert.messageText = loc.t("Spotify connection", "Spotify bağlantısı")
-            alert.informativeText = loc.t("SesEQ is connected to your Spotify account. Pre-fetch is active.\n\nDo you want to disconnect?",
-                                          "SesEQ Spotify hesabına bağlı. Pre-fetch aktif.\n\nBağlantıyı kaldırmak ister misin?")
+            alert.informativeText = loc.t("Eqlume is connected to your Spotify account. Pre-fetch is active.\n\nDo you want to disconnect?",
+                                          "Eqlume Spotify hesabına bağlı. Pre-fetch aktif.\n\nBağlantıyı kaldırmak ister misin?")
             alert.addButton(withTitle: loc.t("Stay connected", "Bağlı tut"))
             alert.addButton(withTitle: loc.t("Disconnect", "Bağlantıyı kaldır"))
             if alert.runModal() == .alertSecondButtonReturn { auth.disconnect(); syncVM() }
@@ -401,7 +427,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         Create an app in the Spotify Developer dashboard:
 
         1. https://developer.spotify.com/dashboard
-        2. "Create app" → name: SesEQ
+        2. "Create app" → name: Eqlume
         3. Redirect URI: \(SpotifyAuth.redirectURI)
         4. Choose the Web API → Save
         5. Copy the Client ID from Settings and paste it below
@@ -409,7 +435,7 @@ final class StatusBarController: NSObject, NSWindowDelegate {
         Spotify Developer dashboard'da bir uygulama oluştur:
 
         1. https://developer.spotify.com/dashboard
-        2. "Create app" → ad: SesEQ
+        2. "Create app" → ad: Eqlume
         3. Redirect URI: \(SpotifyAuth.redirectURI)
         4. Web API'yi seç → Save
         5. Settings'ten Client ID'yi kopyala ve aşağıya yapıştır

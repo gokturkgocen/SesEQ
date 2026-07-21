@@ -22,7 +22,7 @@ enum AppLanguage: String, CaseIterable {
 final class Loc: ObservableObject {
     static let shared = Loc()
 
-    private static let defaultsKey = "SesEQ.language"
+    private static let defaultsKey = "Eqlume.language"
 
     @Published private(set) var lang: AppLanguage
 
@@ -54,7 +54,7 @@ final class Loc: ObservableObject {
 /// from UserDefaults so it works from anywhere (e.g. building HTML off the main actor).
 enum L {
     static var lang: AppLanguage {
-        if let raw = UserDefaults.standard.string(forKey: "SesEQ.language"),
+        if let raw = UserDefaults.standard.string(forKey: "Eqlume.language"),
            let l = AppLanguage(rawValue: raw) { return l }
         return .en
     }
